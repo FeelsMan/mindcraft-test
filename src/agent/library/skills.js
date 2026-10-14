@@ -3,6 +3,7 @@ import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
+import { CraftingStation } from '../crafting_station.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -33,6 +34,25 @@ async function equipHighestAttack(bot) {
         await bot.equip(weapon, 'hand');
 }
 
+function craftingStation(bot) {
+    if (!bot.craftingStation) bot.craftingStation = new CraftingStation(bot, {
+        blockAt: position => bot.blockAt(new Vec3(position.x, position.y, position.z)),
+        move: position => goToPosition(bot, position.x, position.y, position.z, 2),
+        break: async position => {
+            if (!await breakBlockAt(bot, position.x, position.y, position.z) && !bot.interrupt_code)
+                throw new Error('Could not break my crafting table; it remains remembered.');
+        },
+        pickup: async position => {
+            await pickupNearbyItems(bot, { itemName: 'crafting_table' });
+            if (!bot.interrupt_code) await goToPosition(bot, position.x + 0.5, position.y, position.z + 0.5, 1);
+        },
+        canCarry: () => bot.inventory.emptySlotCount() > 0 ||
+            bot.inventory.items().some(item => item.name === 'crafting_table' && item.count < 64),
+        log: message => log(bot, message)
+    });
+    return bot.craftingStation;
+}
+
 export async function craftRecipe(bot, itemName, num=1) {
     /**
      * Attempt to craft the given item name from a recipe. May craft many items.
@@ -42,7 +62,8 @@ export async function craftRecipe(bot, itemName, num=1) {
      * @example
      * await skills.craftRecipe(bot, "stick");
      **/
-    let placedTable = false;
+    if (bot.interrupt_code) return false;
+    const station = craftingStation(bot);
 
     if (mc.getItemCraftingRecipes(itemName).length == 0) {
         log(bot, `${itemName} is either not an item, or it does not have a crafting recipe!`);
@@ -58,18 +79,30 @@ export async function craftRecipe(bot, itemName, num=1) {
         if(!recipes || recipes.length === 0) break placeTable; //Don't bother going to the table if we don't have the required resources.
 
         // Look for crafting table
-        craftingTable = world.getNearestBlock(bot, 'crafting_table', craftingTableRange);
+        craftingTable = await station.forCraft();
+        if (bot.interrupt_code) return false;
+        craftingTable ??= world.getNearestBlock(bot, 'crafting_table', craftingTableRange);
         if (craftingTable === null){
 
             // Try to place crafting table
             let hasTable = world.getInventoryCounts(bot)['crafting_table'] > 0;
             if (hasTable) {
                 let pos = world.getNearestFreeSpace(bot, 1, 6);
+                if (!pos) { log(bot, 'No safe space for the crafting table.'); return false; }
                 await placeBlock(bot, 'crafting_table', pos.x, pos.y, pos.z);
-                craftingTable = world.getNearestBlock(bot, 'crafting_table', craftingTableRange);
-                if (craftingTable) {
+                const deadline = Date.now() + 1500;
+                do {
+                    craftingTable = bot.blockAt(pos);
+                    if (craftingTable?.name === 'crafting_table') break;
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                } while (!bot.interrupt_code && Date.now() < deadline);
+                if (craftingTable?.name === 'crafting_table') {
+                    station.remember(craftingTable);
+                    if (bot.interrupt_code) return false;
                     recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
-                    placedTable = true;
+                } else {
+                    log(bot, 'Could not verify crafting table placement.');
+                    return false;
                 }
             }
             else {
@@ -83,15 +116,14 @@ export async function craftRecipe(bot, itemName, num=1) {
     }
     if (!recipes || recipes.length === 0) {
         log(bot, `You do not have the resources to craft a ${itemName}. It requires: ${Object.entries(mc.getItemCraftingRecipes(itemName)[0][0]).map(([key, value]) => `${key}: ${value}`).join(', ')}.`);
-        if (placedTable) {
-            await collectBlock(bot, 'crafting_table', 1);
-        }
         return false;
     }
     
     if (craftingTable && bot.entity.position.distanceTo(craftingTable.position) > 4) {
-        await goToNearestBlock(bot, 'crafting_table', 4, craftingTableRange);
+        const pos = craftingTable.position;
+        if (!await goToPosition(bot, pos.x, pos.y, pos.z, 3)) return false;
     }
+    if (bot.interrupt_code) return false;
 
     const recipe = recipes[0];
     console.log('crafting...');
@@ -103,9 +135,6 @@ export async function craftRecipe(bot, itemName, num=1) {
     await bot.craft(recipe, Math.min(craftLimit.num, num), craftingTable);
     if(craftLimit.num<num) log(bot, `Not enough ${craftLimit.limitingResource} to craft ${num}, crafted ${craftLimit.num}. You now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
     else log(bot, `Successfully crafted ${itemName}, you now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
-    if (placedTable) {
-        await collectBlock(bot, 'crafting_table', 1);
-    }
 
     //Equip any armor the bot may have crafted.
     //There is probablly a more efficient method than checking the entire inventory but this is all mineflayer-armor-manager provides. :P
@@ -449,6 +478,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     const unsafeBlocks = ['obsidian'];
 
     for (let i=0; i<num; i++) {
+        if (bot.interrupt_code) break;
         let blocks = world.getNearestBlocksWhere(bot, block => {
             if (!blocktypes.includes(block.name)) {
                 return false;
@@ -476,6 +506,10 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             break;
         }
         const block = blocks[0];
+        // Collectblock walks directly through its plugin, so migrate the owned
+        // station before handing it a distant mining target.
+        await bot.craftingStation?.beforeTravel(block.position);
+        if (bot.interrupt_code) break;
         await bot.tool.equipForBlock(block);
         if (isLiquid) {
             const bucket = bot.inventory.findInventoryItem('bucket');
@@ -1075,8 +1109,13 @@ export async function goToGoal(bot, goal) {
      * @param {pf.goals.Goal} goal, the goal to navigate to.
      **/
 
+    const destination = goal.entity?.position ||
+        (Number.isFinite(goal.x) && Number.isFinite(goal.y) && Number.isFinite(goal.z) ? goal : bot.entity.position);
+    await bot.craftingStation?.beforeTravel(destination);
+    if (bot.interrupt_code) return false;
+
     const nonDestructiveMovements = new pf.Movements(bot);
-    const dontBreakBlocks = ['glass', 'glass_pane'];
+    const dontBreakBlocks = ['glass', 'glass_pane', 'crafting_table'];
     for (let block of dontBreakBlocks) {
         nonDestructiveMovements.blocksCantBreak.add(mc.getBlockId(block));
     }
@@ -1084,6 +1123,7 @@ export async function goToGoal(bot, goal) {
     nonDestructiveMovements.digCost = 10;
 
     const destructiveMovements = new pf.Movements(bot);
+    destructiveMovements.blocksCantBreak.add(mc.getBlockId('crafting_table'));
 
     let final_movements = destructiveMovements;
 
@@ -1197,6 +1237,8 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
         return false;
     }
     if (bot.modes.isOn('cheat')) {
+        await bot.craftingStation?.beforeTravel({ x, y, z });
+        if (bot.interrupt_code) return false;
         bot.chat('/tp @s ' + x + ' ' + y + ' ' + z);
         log(bot, `Teleported to ${x}, ${y}, ${z}.`);
         return true;
@@ -1314,7 +1356,7 @@ export async function goToPlayer(bot, username, distance=3) {
 
     bot.modes.pause('self_defense');
     bot.modes.pause('cowardice');
-    let player = bot.players[username].entity
+    let player = bot.players[username]?.entity
     if (!player) {
         log(bot, `Could not find ${username}.`);
         return false;
@@ -1338,9 +1380,12 @@ export async function followPlayer(bot, username, distance=4) {
      * @example
      * await skills.followPlayer(bot, "player");
      **/
-    let player = bot.players[username].entity
+    let player = bot.players[username]?.entity
     if (!player)
         return false;
+
+    await bot.craftingStation?.beforeTravel(player.position);
+    if (bot.interrupt_code) return false;
 
     const move = new pf.Movements(bot);
     move.digCost = 10;
@@ -1353,6 +1398,14 @@ export async function followPlayer(bot, username, distance=4) {
 
     while (!bot.interrupt_code) {
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (bot.craftingStation?.needsPacking(player.position) && !bot.craftingStation.unsafe()) {
+            bot.pathfinder.setGoal(null);
+            try { await bot.craftingStation.beforeTravel(player.position); }
+            catch (error) { clearInterval(doorCheckInterval); throw error; }
+            if (bot.interrupt_code) break;
+            bot.pathfinder.setMovements(move);
+            bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
+        }
         // in cheat mode, if the distance is too far, teleport to the player
         const distance_from_player = bot.entity.position.distanceTo(player.position);
 
@@ -1405,6 +1458,12 @@ export async function moveAway(bot, distance) {
      * await skills.moveAway(bot, 8);
      **/
     const pos = bot.entity.position;
+    const station = bot.craftingStation;
+    if (station?.available() && !station.unsafe() &&
+        pos.distanceTo(new Vec3(station.record.position.x, station.record.position.y, station.record.position.z)) + distance > station.travelDistance) {
+        await station.pack();
+        if (bot.interrupt_code) return false;
+    }
     let goal = new pf.goals.GoalNear(pos.x, pos.y, pos.z, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
     bot.pathfinder.setMovements(new pf.Movements(bot));

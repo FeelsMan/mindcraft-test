@@ -230,6 +230,12 @@ export class Prompter {
                 + 'If a command is unavailable, do not retry it with different wording or move away and try again. Explain the limitation.';
             if (!settings.allow_insecure_coding)
                 prompt += '\n!newAction is unavailable because code generation is disabled.';
+            prompt += '\nFor supported wooden/stone tools and furnaces, prefer !makeGoal when available: it calculates prerequisites and verifies the requested inventory total. Do not gather an arbitrary stack of materials.';
+            const station = this.agent.bot.craftingStation;
+            if (station?.available()) {
+                const { x, y, z } = station.record.position;
+                prompt += `\nYour reusable crafting table is remembered at ${x}, ${y}, ${z}. It is placed in the world, so its absence from inventory does not mean you need to craft another. Crafting returns to it; normal travel beyond ${station.travelDistance} blocks retrieves it first. Safety actions take priority.`;
+            }
             if (!this.agent.self_prompter.isStopped()) {
                 prompt += '\nCURRENT GOAL: ' + this.agent.self_prompter.prompt
                     + '\nChoose one command that advances this goal. Preserve items the goal asks you to keep. '

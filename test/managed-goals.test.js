@@ -11,7 +11,11 @@ const recipes = {
     oak_planks: [[{ oak_log: 1 }, { craftedCount: 4 }]],
     stick: [[{ oak_planks: 2 }, { craftedCount: 4 }]],
     crafting_table: [[{ oak_planks: 4 }, { craftedCount: 1 }]],
-    wooden_axe: [[{ oak_planks: 3, stick: 2 }, { craftedCount: 1 }]]
+    wooden_axe: [[{ oak_planks: 3, stick: 2 }, { craftedCount: 1 }]],
+    wooden_pickaxe: [[{ oak_planks: 3, stick: 2 }, { craftedCount: 1 }]],
+    stone_pickaxe: [[{ cobblestone: 3, stick: 2 }, { craftedCount: 1 }]],
+    stone_axe: [[{ cobblestone: 3, stick: 2 }, { craftedCount: 1 }]],
+    furnace: [[{ cobblestone: 8 }, { craftedCount: 1 }]]
 };
 
 function fixture(initial = {}) {
@@ -59,6 +63,70 @@ test('planner reserves the table and recipe materials rather than gathering an a
     const p = planMake('wooden_axe', 1, {}, false, name => recipes[name]);
     assert.equal(p.filter(s => s.type === 'gather').reduce((n, s) => n + s.count, 0), 3);
     assert.equal(p.filter(s => s.item === 'crafting_table').length, 1);
+});
+
+test('stone pickaxe bootstraps a mining tool and reserves both recipes before gathering stone', () => {
+    const p = planMake('stone_pickaxe', 1, {}, false, name => recipes[name]);
+    const mining = p.findIndex(s => s.type === 'gather' && s.item === 'cobblestone');
+    assert(p.findIndex(s => s.item === 'wooden_pickaxe') < mining);
+    assert.equal(p[mining].count, 3);
+    assert.equal(p.filter(s => s.type === 'gather' && s.item === 'oak_log').reduce((n, s) => n + s.count, 0), 3);
+    assert.equal(p.filter(s => s.item === 'crafting_table').length, 1);
+});
+
+test('furnace with a reusable station and existing pickaxe needs exactly eight cobblestone', () => {
+    const p = planMake('furnace', 1, { iron_pickaxe: 1 }, true, name => recipes[name]);
+    assert.deepEqual(p, [
+        { type: 'gather', item: 'cobblestone', count: 8 },
+        { type: 'craft', item: 'furnace', batches: 1, output: 1 }
+    ]);
+});
+
+test('requesting a table in inventory recovers the owned station instead of crafting a duplicate', async () => {
+    const f = fixture();
+    let owned = true, recovered = 0;
+    f.api.hasTable = () => owned;
+    f.api.hasOwnedTable = () => owned;
+    f.api.recoverTable = async () => { recovered++; owned = false; f.stock.crafting_table = 1; };
+    const goal = await start(f, 'crafting_table');
+    assert.match(await goal.done, /Crafting complete/);
+    assert.equal(recovered, 1);
+    assert.equal(f.calls.length, 0);
+});
+
+test('stone tool and furnace goals reuse stock and verify the resulting inventory', async () => {
+    const f = fixture({ wooden_pickaxe: 1, crafting_table: 1, stick: 2, cobblestone: 2 });
+    f.api.collect = async (_bot, name) => {
+        assert(f.stock.wooden_pickaxe > 0);
+        f.calls.push('gather:' + name);
+        f.stock[name] = (f.stock[name] || 0) + 1;
+    };
+    const axe = await start(f, 'stone_axe');
+    assert.match(await axe.done, /Crafting complete/);
+    assert.equal(f.calls.filter(s => s === 'gather:cobblestone').length, 1);
+    const furnace = await start(f, 'furnace');
+    assert.match(await furnace.done, /Crafting complete/);
+    assert.equal(f.stock.furnace, 1);
+    assert.equal(f.calls.filter(s => s.startsWith('craft:wooden')).length, 0);
+    assert.equal(f.calls.filter(s => s === 'gather:cobblestone').length, 9);
+});
+
+test('combat after a stone pickup retains progress and does not overmine the furnace ingredients', async () => {
+    const f = fixture({ wooden_pickaxe: 1, crafting_table: 1 });
+    let combat;
+    f.api.collect = async (bot, name) => {
+        f.calls.push('gather:' + name);
+        f.stock[name] = (f.stock[name] || 0) + 1;
+        if (f.stock[name] === 1) {
+            combat = f.agent.actions.runAction('mode:self_defense', async () => { await sleep(30); });
+            while (!bot.interrupt_code) await sleep(1);
+        }
+    };
+    const goal = await start(f, 'furnace');
+    assert.match(await goal.done, /Crafting complete/);
+    await combat;
+    assert.equal(f.calls.filter(s => s === 'gather:cobblestone').length, 8);
+    assert.equal(f.stock.furnace, 1);
 });
 
 test('delayed inventory delivery does not cause another log to be mined', async () => {

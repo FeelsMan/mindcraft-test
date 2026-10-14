@@ -1,0 +1,29 @@
+# Mia crafting stations, stone tools, and furnaces
+
+`!makeGoal("stone_pickaxe", 1)` calculates the missing materials from live inventory, gathers only what is missing, and verifies the finished tool. It can bootstrap a wooden pickaxe before mining stone. Existing pickaxes are reused.
+
+Supported targets are `oak_planks`, `stick`, `crafting_table`, `cobblestone`, `furnace`, and the axe, pickaxe, shovel, hoe, and sword in wooden or stone form. Targets are total inventory counts from 1 to 64. The oak/cobblestone recipe path is intentional; smelting and shelter construction are not added by this update.
+
+Try these goals one at a time:
+
+```text
+!makeGoal("stone_pickaxe", 1)
+!makeGoal("stone_axe", 1)
+!makeGoal("furnace", 1)
+```
+
+Crafting leaves a table that Mia placed in the world. She remembers its exact coordinates and returns to it for subsequent crafts, including when it is outside the ordinary 16-block table search. Another player's nearby table can be used, but it is not owned or retrieved.
+
+`!makeGoal("crafting_table", 1)` also retrieves her owned table if it is placed, rather than crafting a duplicate to satisfy the inventory target.
+
+Before normal navigation, mining, or following a player beyond 32 blocks from her owned table, she returns, breaks that exact table, verifies its pickup, then continues. A moving player is checked every half-second while following. A new table placement uses the carried table at the next work site. Nearby activity leaves the table in place, including between separate make goals.
+
+Combat, escape, and unstuck actions take priority over retrieval. Interrupted crafting retains its target and replans from current inventory after safety actions finish. If table recovery is interrupted after digging, the pending pickup is remembered. Failed recovery or a full inventory stops the trip instead of claiming that the table was packed. `!endGoal` and `!stop` cancel a crafting goal.
+
+Station ownership is session-local and is cleared on death, disconnect, or a dimension change. Existing tables can still be used after a restart, but are not automatically claimed as Mia's property. Resource collection searches the nearby loaded world; unavailable logs or stone produce a bounded failure report rather than an endless search.
+
+## Validation
+
+Run `npm run test:goals` in a repository checkout. The standalone patch also supports `--test` to run all included goal and station tests directly without changing package settings.
+
+The 26.3 integration check uses a disposable flat test world and the real Mineflayer crafting, mining, navigation, and self-defense code. Starting tools/table and controlled survival effects isolate goal execution from unrelated survival failures.

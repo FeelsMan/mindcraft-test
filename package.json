@@ -54,7 +54,7 @@
     "start": "node main.js",
     "reinstall": "npm run clean:modules && npm install",
     "clean:modules": "node -e \"const fs=require('fs');const p=require('path');['node_modules','package-lock.json'].forEach(f=>{if(fs.existsSync(f)){if(fs.lstatSync(f).isDirectory()){fs.rmSync(f,{recursive:true,force:true});}else{fs.unlinkSync(f);}}});\"",
-    "test:goals": "node --experimental-test-module-mocks --test test/managed-goals.test.js test/command-policy.test.js test/agent-command-loop.test.js"
+    "test:goals": "node --experimental-test-module-mocks --test test/managed-goals.test.js test/crafting-station.test.js test/command-policy.test.js test/agent-command-loop.test.js"
   },
   "devDependencies": {
     "patch-package": "^8.0.0"

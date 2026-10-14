@@ -1,33 +1,44 @@
 import { countItem } from './gather_goal.js';
 import { collectAndVerify, waitForInventory, waitForGoalTurn } from './managed_goal.js';
 
-const tools = new Set(['wooden_axe', 'wooden_pickaxe', 'wooden_shovel', 'wooden_hoe', 'wooden_sword']);
-export const supportedItems = new Set(['oak_planks', 'stick', 'crafting_table', ...tools]);
+const toolKinds = ['axe', 'pickaxe', 'shovel', 'hoe', 'sword'];
+const tools = new Set(['wooden', 'stone'].flatMap(tier => toolKinds.map(kind => `${tier}_${kind}`)));
+export const supportedItems = new Set(['oak_planks', 'stick', 'crafting_table', 'cobblestone', 'furnace', ...tools]);
 
 // Pure planner: reserve every ingredient in a virtual inventory, including
 // ingredients used for the crafting table. Recipe output counts are batch sizes.
 export function planMake(item, target, inventory, nearbyTable, recipesFor) {
-    if (!supportedItems.has(item)) throw new Error('Supported: oak_planks, stick, crafting_table, and wooden tools.');
+    if (!supportedItems.has(item)) throw new Error('Supported: oak_planks, stick, crafting_table, cobblestone, furnace, and wooden/stone tools.');
     if (!Number.isSafeInteger(target) || target < 1 || target > 64) throw new Error('Target must be 1 to 64 total items.');
     const stock = { ...inventory };
     const steps = [];
     if ((stock[item] || 0) >= target) return steps;
+    const ensureTable = chain => {
+        if (!nearbyTable && !(stock.crafting_table > 0)) ensure('crafting_table', 1, chain);
+    };
     function ensure(name, amount, chain = []) {
         const missing = amount - (stock[name] || 0);
         if (missing <= 0) return;
         if (chain.includes(name)) throw new Error('Recipe cycle: ' + name);
-        if (name === 'oak_log') {
+        if (name === 'oak_log' || name === 'cobblestone') {
+            if (name === 'cobblestone' && !Object.entries(stock).some(([key, count]) => key.endsWith('_pickaxe') && count > 0)) {
+                // Stone drops cobblestone only with a pickaxe. Bootstrap a
+                // wooden one before mining; existing better pickaxes are reused.
+                ensure('wooden_pickaxe', 1, [...chain, name]);
+            }
             steps.push({ type: 'gather', item: name, count: missing });
             stock[name] = (stock[name] || 0) + missing;
             return;
         }
         if (!supportedItems.has(name)) throw new Error('Unsupported prerequisite: ' + name);
-        // Select an oak-based recipe from the installed Minecraft recipe data.
+        if (tools.has(name) || name === 'furnace') ensureTable([...chain, name]);
+        // Select recipes whose prerequisites this planner can obtain. Stone
+        // recipes use cobblestone; alternative stone variants are not assumed.
         const recipe = (recipesFor(name) || []).find(([ingredients, result]) =>
             Object.keys(ingredients).length > 0 && Number.isSafeInteger(result.craftedCount) && result.craftedCount > 0 &&
             Object.entries(ingredients).every(([key, n]) =>
-                ['oak_log', 'oak_planks', 'stick'].includes(key) && Number.isSafeInteger(n) && n > 0));
-        if (!recipe) throw new Error('No supported oak recipe found for ' + name);
+                ['oak_log', 'oak_planks', 'stick', 'cobblestone'].includes(key) && Number.isSafeInteger(n) && n > 0));
+        if (!recipe) throw new Error('No supported oak/cobblestone recipe found for ' + name);
         const [ingredients, result] = recipe;
         const batches = Math.ceil(missing / result.craftedCount);
         for (const [ingredient, quantity] of Object.entries(ingredients)) {
@@ -37,7 +48,6 @@ export function planMake(item, target, inventory, nearbyTable, recipesFor) {
         stock[name] = (stock[name] || 0) + batches * result.craftedCount;
         steps.push({ type: 'craft', item: name, batches, output: result.craftedCount });
     }
-    if (tools.has(item) && !nearbyTable) ensure('crafting_table', 1);
     ensure(item, target);
     return steps;
 }
@@ -50,7 +60,11 @@ export function inventoryCounts(bot) {
 
 export async function startMakeGoal(agent, item, target, api) {
     if (agent.gather_goal?.active) return 'A managed goal is active. Use !endGoal first.';
-    const plan = () => planMake(item, target, inventoryCounts(agent.bot), api.hasTable(agent.bot), api.recipes);
+    const plan = () => {
+        if (item === 'crafting_table' && countItem(agent.bot, item) < target && api.hasOwnedTable?.(agent.bot))
+            return [{ type: 'recover', item: 'crafting_table', output: 1 }];
+        return planMake(item, target, inventoryCounts(agent.bot), api.hasTable(agent.bot), api.recipes);
+    };
     let initial;
     try { initial = plan(); } catch (error) { return error.message; }
     const goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running' };
@@ -71,7 +85,8 @@ export async function startMakeGoal(agent, item, target, api) {
         await agent.history.save();
     } catch (error) { cleanup(); throw error; }
     const describe = steps => steps.map(s => s.type === 'gather' ?
-        `gather ${s.count} ${s.item}` : `craft ${s.item} (${s.batches} batch(es), ${s.output} each)`).join(' -> ');
+        `gather ${s.count} ${s.item}` : s.type === 'recover' ? 'recover my crafting table' :
+        `craft ${s.item} (${s.batches} batch(es), ${s.output} each)`).join(' -> ');
     console.log('Make plan:', describe(initial) || 'Already complete');
     goal.done = (async () => {
         let report = '';
@@ -94,6 +109,9 @@ export async function startMakeGoal(agent, item, target, api) {
                     if (goal.cancelled) return;
                     if (step.type === 'gather') {
                         verified = await collectAndVerify(agent, goal, step.item, api.collect, api.pickup, api.verifyTimeoutMs);
+                    } else if (step.type === 'recover') {
+                        await api.recoverTable(agent.bot);
+                        verified = await waitForInventory(agent, goal, step.item, before + 1, api.verifyTimeoutMs);
                     } else {
                         await api.craft(agent.bot, step.item, 1);
                         verified = await waitForInventory(agent, goal, step.item, before + step.output, api.verifyTimeoutMs);
@@ -109,7 +127,7 @@ export async function startMakeGoal(agent, item, target, api) {
                 }
                 noProgress = result.success && verified ? 0 : noProgress + 1;
                 if (noProgress >= 2)
-                    throw new Error(`Could not verify ${step.item} output. Check ingredients, reachable logs, or space for the crafting table.`);
+                    throw new Error(`Could not verify ${step.item} output. Check ingredients, reachable logs/stone, the pickaxe, and space for the crafting table.`);
             }
             if (goal.cancelled) report = 'Crafting goal cancelled.';
             else if (!report) report = 'Crafting stopped at the action limit. Goal not marked complete.';

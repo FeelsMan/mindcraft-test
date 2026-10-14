@@ -1,4 +1,5 @@
 import { startMakeGoal } from '../make_goal.js';
+import { hasReusableTable } from '../crafting_station.js';
 import { getItemCraftingRecipes } from '../../utils/mcdata.js';
 import { getNearestBlock } from '../library/world.js';
 import { startGatherGoal, cancelGatherGoal } from '../gather_goal.js';
@@ -32,14 +33,16 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
 export const actionsList = [
     {
         name: '!makeGoal',
-        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables and wooden tools. Pauses for combat and resumes the same target. Stops on death, cancellation, repeated failure or restart.',
+        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables, cobblestone, wooden/stone tools and furnaces. Reuses existing tools and the remembered crafting table; mines stone only after obtaining a pickaxe. Pauses for combat and resumes the same target. Stops on death, cancellation, repeated failure or restart.',
         params: {
             item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
         },
         perform: (agent, item, count) => startMakeGoal(agent, item, count, {
             recipes: getItemCraftingRecipes,
-            hasTable: bot => Boolean(getNearestBlock(bot, 'crafting_table', 16)),
+            hasTable: bot => hasReusableTable(bot) || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
+            hasOwnedTable: hasReusableTable,
+            recoverTable: bot => bot.craftingStation.pack(),
             collect: skills.collectBlock,
             pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
             craft: skills.craftRecipe
