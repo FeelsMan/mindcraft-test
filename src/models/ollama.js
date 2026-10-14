@@ -7,7 +7,7 @@ export class Ollama {
         this.params = params;
         this.url = url || 'http://127.0.0.1:11434';
         this.chat_endpoint = '/api/chat';
-        this.embedding_endpoint = '/api/embeddings';
+        this.embedding_endpoint = '/api/embed';
     }
 
     async sendRequest(turns, systemMessage) {
@@ -72,13 +72,18 @@ export class Ollama {
         let model = this.model_name || 'embeddinggemma';
         let body = { model: model, input: text };
         let res = await this.send(this.embedding_endpoint, body);
-        return res['embedding'];
+        const embedding = res?.embeddings?.[0];
+        if (!Array.isArray(embedding) || !embedding.length ||
+            !embedding.every(Number.isFinite) || !embedding.some(v => v !== 0)) {
+            throw new Error('Ollama returned an invalid embedding vector.');
+        }
+        return embedding;
     }
 
     async send(endpoint, body) {
         const url = new URL(endpoint, this.url);
         let method = 'POST';
-        let headers = new Headers();
+        let headers = new Headers({ 'Content-Type': 'application/json' });
         const request = new Request(url, { method, headers, body: JSON.stringify(body) });
         let data = null;
         try {

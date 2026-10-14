@@ -1,11 +1,15 @@
+import { gatherCommandAllowed } from '../gather_goal.js';
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
+import settings from '../settings.js';
+import { availabilityReason } from '../command_policy.js';
 
 let suppressNoDomainWarning = true;
 
 const commandList = queryList.concat(actionsList);
 const commandMap = {};
+const disabledCommands = new Set();
 for (let command of commandList) {
     commandMap[command.name] = command;
 }
@@ -15,14 +19,13 @@ export function getCommand(name) {
 }
 
 export function blacklistCommands(commands) {
-    const unblockable = ['!stop', '!stats', '!inventory', '!goal'];
+    const unblockable = ['!stop', '!endGoal', '!stats', '!inventory', '!goal'];
     for (let command_name of commands) {
         if (unblockable.includes(command_name)){
             console.warn(`Command ${command_name} is unblockable`);
             continue;
         }
-        delete commandMap[command_name];
-        delete commandList.find(command => command.name === command_name);
+        disabledCommands.add(command_name);
     }
 }
 
@@ -40,6 +43,14 @@ export function commandExists(commandName) {
     if (!commandName.startsWith("!"))
         commandName = "!" + commandName;
     return commandMap[commandName] !== undefined;
+}
+
+export function commandUnavailableReason(agent, name) {
+    return availabilityReason(name, {
+        exists: Boolean(commandMap[name]),
+        blocked: disabledCommands.has(name) || (agent.blocked_actions || []).includes(name),
+        allowCoding: Boolean(settings.allow_insecure_coding)
+    });
 }
 
 /**
@@ -210,10 +221,17 @@ function numParams(command) {
 }
 
 export async function executeCommand(agent, message) {
+    const name = containsCommand(message);
+    if (name) {
+        const unavailable = commandUnavailableReason(agent, name);
+        if (unavailable) return unavailable;
+    }
     let parsed = parseCommandMessage(message);
     if (typeof parsed === 'string')
         return parsed; //The command was incorrectly formatted or an invalid input was given.
     else {
+        if (!gatherCommandAllowed(agent, parsed.commandName))
+            return 'A managed goal is active. Other action commands are blocked. Use !endGoal to cancel it first.';
         console.log('parsed command:', parsed);
         const command = getCommand(parsed.commandName);
         let numArgs = 0;
@@ -244,7 +262,7 @@ export function getCommandDocs(agent) {
     Use the commands with the syntax: !commandName or !commandName("arg1", 1.2, ...) if the command takes arguments.\n
     Do not use codeblocks. Use double quotes for strings. Only use one command in each response, trailing commands and comments will be ignored.\n`;
     for (let command of commandList) {
-        if (agent.blocked_actions.includes(command.name)) {
+        if (commandUnavailableReason(agent, command.name)) {
             continue;
         }
         docs += command.name + ': ' + command.description + '\n';

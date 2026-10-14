@@ -2,6 +2,11 @@ import { sendOutputToServer } from './mindserver_proxy.js';
 
 // Definitions of error types, keywords, and full human-readable messages.
 const ERROR_DEFINITIONS = {
+    'authentication_required': {
+        keywords: ['requires a valid authentication mode', 'server is in online mode', 'failed to verify username', 'invalid session', 'not authenticated with minecraft.net'],
+        msg: 'Authentication required: this server needs a licensed Minecraft account. For a direct connection set auth to microsoft; a ViaProxy connection needs its own account configured in ViaProxy.',
+        isFatal: true
+    },
     'name_conflict': {
         keywords: ['name_taken', 'duplicate_login', 'already connected', 'already logged in', 'username is already'],
         msg: 'Name Conflict: The name is already in use or you are already logged in.',

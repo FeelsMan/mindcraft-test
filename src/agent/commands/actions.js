@@ -1,3 +1,7 @@
+import { startMakeGoal } from '../make_goal.js';
+import { getItemCraftingRecipes } from '../../utils/mcdata.js';
+import { getNearestBlock } from '../library/world.js';
+import { startGatherGoal, cancelGatherGoal } from '../gather_goal.js';
 import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
@@ -27,6 +31,31 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
 
 export const actionsList = [
     {
+        name: '!makeGoal',
+        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables and wooden tools. Pauses for combat and resumes the same target. Stops on death, cancellation, repeated failure or restart.',
+        params: {
+            item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
+            count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
+        },
+        perform: (agent, item, count) => startMakeGoal(agent, item, count, {
+            recipes: getItemCraftingRecipes,
+            hasTable: bot => Boolean(getNearestBlock(bot, 'crafting_table', 16)),
+            collect: skills.collectBlock,
+            pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
+            craft: skills.craftRecipe
+        })
+    },
+    {
+        name: '!gatherGoal',
+        description: 'Gather and keep a total inventory count of logs, then stop automatically. Supports log blocks; no crafting. Stops on death or repeated lack of progress.',
+        params: {
+            item: { type: 'ItemName', description: 'Log item, such as oak_log.' },
+            count: { type: 'int', description: 'Total desired in inventory, including existing logs.', domain: [1, 64] }
+        },
+        perform: async (agent, item, count) => startGatherGoal(agent, item, count, skills.collectBlock,
+            (bot, name) => skills.pickupNearbyItems(bot, { itemName: name }))
+    },
+    {
         name: '!newAction',
         description: 'Perform new and unknown custom behaviors that are not available as a command.', 
         params: {
@@ -35,8 +64,7 @@ export const actionsList = [
         perform: async function(agent, prompt) {
             // just ignore prompt - it is now in context in chat history
             if (!settings.allow_insecure_coding) { 
-                agent.openChat('newAction is disabled. Enable with allow_insecure_coding=true in settings.js');
-                return "newAction not allowed! Code writing is disabled in settings. Notify the user.";
+                return 'newAction is unavailable because code generation is disabled. Choose an available command or explain the limitation.';
             }
             let result = "";
             const actionFn = async () => {
@@ -54,6 +82,7 @@ export const actionsList = [
         name: '!stop',
         description: 'Force stop all actions and commands that are currently executing.',
         perform: async function (agent) {
+            await cancelGatherGoal(agent);
             await agent.actions.stop();
             agent.clearBotLogs();
             agent.actions.cancelResume();
@@ -162,8 +191,13 @@ export const actionsList = [
         description: 'Save the current location with a given name.',
         params: {'name': { type: 'string', description: 'The name to remember the location as.' }},
         perform: async function (agent, name) {
+            if (name === 'last_death_position')
+                return 'last_death_position is reserved for actual death events. Do not guess it.';
+            if (['__proto__', 'constructor', 'prototype'].includes(name))
+                return 'Invalid location name.';
             const pos = agent.bot.entity.position;
             agent.memory_bank.rememberPlace(name, pos.x, pos.y, pos.z);
+            await agent.history.save();
             return `Location saved as "${name}".`;
         }
     },
@@ -379,8 +413,9 @@ export const actionsList = [
         name: '!endGoal',
         description: 'Call when you have accomplished your goal. It will stop self-prompting and the current action. ',
         perform: async function (agent) {
-            agent.self_prompter.stop();
-            return 'Self-prompting stopped.';
+            await cancelGatherGoal(agent);
+            await agent.self_prompter.stop();
+            return 'Goal stopped.';
         }
     },
     {

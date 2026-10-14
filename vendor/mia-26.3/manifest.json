@@ -1,0 +1,111 @@
+{
+  "target": "26.3",
+  "protocol": 777,
+  "status": "experimental",
+  "packages": {
+    "mineflayer": {
+      "file": "mineflayer-4.39.0-e9cab5227581.tgz",
+      "version": "4.39.0",
+      "sha256": "e9cab5227581858dbe0d518298d6fc7c280586cb95d7e731ca465dd69aa24e14"
+    },
+    "minecraft-protocol": {
+      "file": "minecraft-protocol-1.68.0-58bed651d7e2.tgz",
+      "version": "1.68.0",
+      "sha256": "58bed651d7e2087035476eea8aaf084c8228889d7d012d5eb0dc6f325ae60bce"
+    },
+    "prismarine-chunk": {
+      "file": "prismarine-chunk-1.41.0-4252f193b4e1.tgz",
+      "version": "1.41.0",
+      "sha256": "4252f193b4e16aafcfb51cb3271c62829746930fb3a128bb08ac627cd863f7a5"
+    },
+    "prismarine-physics": {
+      "file": "prismarine-physics-1.11.1-9c45c65b5dd4.tgz",
+      "version": "1.11.1",
+      "sha256": "9c45c65b5dd4e0cf4434902bd0b2780d3306343115d6b8692fa73176b718ecdc"
+    }
+  },
+  "upstream": [
+    {
+      "label": "chunk",
+      "repo": "PrismarineJS/prismarine-chunk",
+      "sha": "7382b4fef1c56290524665e7b9af58b7d1f34791",
+      "bytes": 822144,
+      "sha256": "7ff04f43376f1c22985412f5a826deacbef5449e4a7e9724a50c91886eae84c6"
+    },
+    {
+      "label": "data",
+      "repo": "PrismarineJS/minecraft-data",
+      "sha": "924e26d6b3bb8f97a5d1e73d6190b09879c2e1e2",
+      "bytes": 26866221,
+      "sha256": "ab415aecbfb22f1e41a9639269ffbbe86be6a9b71d3139e6a9f5cd33b1aee700"
+    },
+    {
+      "label": "mineflayer",
+      "repo": "PrismarineJS/mineflayer",
+      "sha": "7b4bb8d2b56be9cdb832474af873acd37e609746",
+      "bytes": 445300,
+      "sha256": "f97a12357a800278d0f04b2cd7f8cf01e48cdae1849bd913cd0495efe37351db"
+    },
+    {
+      "label": "physics",
+      "repo": "PrismarineJS/prismarine-physics",
+      "sha": "b928638645a56a110a51da1f2080c6455b27984a",
+      "bytes": 25154,
+      "sha256": "650b34abce0b8077806b45c90f7f639f0886ef677c8e2ac99a08b1f779a79d95"
+    },
+    {
+      "label": "protocol",
+      "repo": "PrismarineJS/node-minecraft-protocol",
+      "sha": "a1a33809c49553e544a7efd3d8bc03eb0867f4ab",
+      "bytes": 93872,
+      "sha256": "df5d1513e76e611eb5235d3d66f475f7b186d7dd99b9b22f7ce7e3bd2b0e5308"
+    }
+  ],
+  "mineflayerPullRequests": [
+    4130,
+    4144,
+    4146
+  ],
+  "localCorrections": [
+    "Do not send a second movement packet in a teleport reply tick.",
+    "Keep the 26.3 respawn reply inside the client tick.",
+    "Reconcile authoritative inventory/cursor state after each 26.3 container click."
+  ],
+  "dataBase": "3.117.0",
+  "dataPaths": [
+    "26.3"
+  ],
+  "dataFiles": {
+    "pc/26.2/attributes.json": "a72c4b74777a6aba4287a631aae0294a8d1f69469ddf8c038f177e1893c02051",
+    "pc/26.2/biomes.json": "902ddae953092aba4a3f225b1c9daf72723c543a969137a9c4da97136a0e01c6",
+    "pc/26.2/blockLoot.json": "805fa7155bb5d0bed967cf8009db67b03089b80b737f57073c88ba62143af910",
+    "pc/26.2/commands.json": "0a7a101671a3341ca27b47aeb417e322cafbc5c4042a85594bbc9c23cd92b70b",
+    "pc/26.2/entityLoot.json": "725c7c0a3eb32aad88148b2208c7141e4ae7698b7333c8d642949c92949dff75",
+    "pc/26.2/language.json": "3f64188a0a8807906019a04561d8392990e71e239ab41fbc7843806b0dee06da",
+    "pc/26.2/loginPacket.json": "85a01488a5648ae815baa50e921814df4fb4d92bfb864eb28ba907dbed2b05cf",
+    "pc/26.2/materials.json": "eb4770f97152ccb72d311026c01bf5a96cbf53902b4827c68054d6df6d4ac891",
+    "pc/26.2/particles.json": "5bccfa71eae42c691ccf9529283a5256aaa480d82eab1cbff6a14eba4a96b03d",
+    "pc/26.2/sounds.json": "3084ebf9fff134e9d5ce0c87201ab4d42ae5bf3a2ec24e02591545968eecf22a",
+    "pc/26.2/tints.json": "da0bcd249f47d56290c2382a01c564f82e309061c5f1e83d04578bd7d9485eff",
+    "pc/26.3/blockCollisionShapes.json": "3dcb8f07c528975a50c27c091351678d22ef64ceb64b08a71c83839924d6047e",
+    "pc/26.3/blocks.json": "776312e51207352734304a293d9300f6c69b4efa40f00ac574c99d1ca7889873",
+    "pc/26.3/entities.json": "33c2d7569e10cb98d86240e8135396702edb92c98e6ccb1c18bf6a481f22e3d5",
+    "pc/26.3/foods.json": "77da85a0f07aed8a2b1997d6d7b28d32f36d93f6fec703c1442494665218ed9e",
+    "pc/26.3/items.json": "f0d0e447dd0311b7322f4548971d6ebf6074b5842fd4c7b4e3d8698e00b5edcb",
+    "pc/26.3/proto.yml": "3d38ebaa684a3b7a4c38bf3e6eb41f63ac8b83aaa51aa2a40bb45d9d8d44d60d",
+    "pc/26.3/protocol.json": "13a10695aa1ed3604ed674ce8fdc8a759f48118714eab98644e685a3d1960727",
+    "pc/26.3/recipes.json": "173c3b7cfbf1cc9e2a189fe5a3384c22a536d8b90a659850da336739eca38a6d",
+    "pc/26.3/version.json": "0d08bd2b5bce95b84405b8d39d259a365663789d22e968bdbdad9a2d4b2cc45f",
+    "pc/common/features.json": "1bdf99189e7373d055eaf46fde515cdf80b2fe858027c279d869555ff38fe148",
+    "pc/common/protocolVersions.json": "1491fea0d6cade03d593e41ab82f0a2fe4cc1668fab3bf924d2930ff6f2f5264",
+    "pc/26.1/effects.json": "4b9af382491bd06aedc5c9ad33ee5f3a57d47aa5b021e83292ab584efedc8e8c",
+    "pc/26.1/enchantments.json": "55b763d6ba10520f35139d4ef5072813539164496ab19985309b611caf86ef17",
+    "pc/26.1/instruments.json": "f745825f467d804ae66592c4db99e51ab1f9b64a2f710b9d33524d3dd74b5824",
+    "pc/1.20.2/mapIcons.json": "2ce8414995cbba827e00a6c391e5fb5e85316899b4a647ee05cf6b7aa465c415",
+    "pc/1.20.3/windows.json": "4b3c77daa3f6b6d583b3191cd43a0e2383a682ae46679e61f66ea2017306d25f"
+  },
+  "dataArchive": {
+    "file": "data-overlay.json.gz",
+    "sha256": "fa0688a639dca5708c623dede6fd9f19f5e718906784599c18eeccec022a725c"
+  }
+}

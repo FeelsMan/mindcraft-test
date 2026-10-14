@@ -3,6 +3,7 @@ import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
 import settings from './settings.js'
 import convoManager from './conversation.js';
+import { modeAllowedDuringGoal } from './managed_goal.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -317,6 +318,7 @@ async function execute(mode, agent, func, timeout=-1) {
     let should_reprompt = 
         interrupted_action && // it interrupted a previous action
         !agent.actions.resume_func && // there is no resume function
+        !agent.gather_goal?.active && // managed goal will resume itself after safety actions
         !agent.self_prompter.isActive() && // self prompting is not on
         !code_return.interrupted; // this mode action was not interrupted by something else
 
@@ -356,6 +358,10 @@ class ModeController {
 
     isOn(mode_name) {
         return modes_map[mode_name].on;
+    }
+
+    getActiveModes() {
+        return modes_list.filter(mode => mode.active).map(mode => mode.name);
     }
 
     pause(mode_name) {
@@ -401,6 +407,7 @@ class ModeController {
             this.unPauseAll();
         }
         for (let mode of modes_list) {
+            if (!modeAllowedDuringGoal(_agent, mode.name)) continue;
             let interruptible = mode.interrupts.some(i => i === 'all') || mode.interrupts.some(i => i === _agent.actions.currentActionLabel);
             if (mode.on && !mode.paused && !mode.active && (_agent.isIdle() || interruptible)) {
                 await mode.update(_agent);

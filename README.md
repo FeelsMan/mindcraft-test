@@ -1,3 +1,5 @@
+This fork includes **experimental native Minecraft Java 26.3 support** and recoverable Mia gathering/crafting goals. See [Mia setup, changes and validation](docs/mia.md).
+
 <h1 align="center">🧠mindcraft⛏️</h1>
 <h1 align="center">
   <a href="https://trendshift.io/repositories/14816" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14816" alt="mindcraft-bots%2Fmindcraft | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>

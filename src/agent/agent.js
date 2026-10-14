@@ -1,10 +1,12 @@
+import { installDeathRecovery } from './death_recovery.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
 import { Prompter } from '../models/prompter.js';
 import { initModes } from './modes.js';
 import { initBot } from '../utils/mcdata.js';
-import { containsCommand, commandExists, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
+import { containsCommand, commandUnavailableReason, executeCommand, truncCommandMessage, isAction, blacklistCommands } from './commands/index.js';
+import { resetUnavailableAttempts, recordUnavailableAttempt } from './command_policy.js';
 import { ActionManager } from './action_manager.js';
 import { NPCContoller } from './npc/controller.js';
 import { MemoryBank } from './memory_bank.js';
@@ -100,7 +102,7 @@ export class Agent {
             else
                 this.bot.chat(`/skin clear`);
         });
-		const spawnTimeoutDuration = settings.spawn_timeout;
+		const spawnTimeoutDuration = settings.auth === 'microsoft' ? Math.max(300, Number(settings.spawn_timeout) || 30) : (Number(settings.spawn_timeout) || 30);
         const spawnTimeout = setTimeout(() => {
             const msg = `Bot has not spawned after ${spawnTimeoutDuration} seconds. Exiting.`;
             log(this.name, msg);
@@ -210,7 +212,7 @@ export class Agent {
                 convoManager.receiveFromBot(this.last_sender, msg_package);
             }
         }
-        else if (init_message) {
+        else if (init_message && !save_data?.self_prompt) {
             await this.handleMessage('system', init_message, 2);
         }
         else {
@@ -252,6 +254,10 @@ export class Agent {
     }
 
     async handleMessage(source, message, max_responses=null) {
+        if (this.recovering_from_death) return false;
+        const messageDeathEpoch = this.death_epoch || 0;
+        const messageGatherEpoch = this.gather_epoch || 0;
+        const messageCommandFailureEpoch = this.command_failure_epoch || 0;
         await this.checkTaskDone();
         if (!source || !message) {
             console.warn('Received empty message from', source);
@@ -270,10 +276,12 @@ export class Agent {
         const from_other_bot = convoManager.isOtherAgent(source);
 
         if (!self_prompt && !from_other_bot) { // from user, check for forced commands
+            resetUnavailableAttempts(this);
             const user_command_name = containsCommand(message);
             if (user_command_name) {
-                if (!commandExists(user_command_name)) {
-                    this.routeResponse(source, `Command '${user_command_name}' does not exist.`);
+                const unavailable = commandUnavailableReason(this, user_command_name);
+                if (unavailable) {
+                    this.routeResponse(source, unavailable);
                     return false;
                 }
                 this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
@@ -289,6 +297,8 @@ export class Agent {
             }
         }
 
+        if (this.gather_goal?.active) return false;
+
         if (from_other_bot)
             this.last_sender = source;
 
@@ -296,7 +306,7 @@ export class Agent {
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
-        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
+        const checkInterrupt = () => messageCommandFailureEpoch !== (this.command_failure_epoch || 0) || messageGatherEpoch !== (this.gather_epoch || 0) || messageDeathEpoch !== (this.death_epoch || 0) || this.recovering_from_death || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
         let behavior_log = this.bot.modes.flushBehaviorLog().trim();
         if (behavior_log.length > 0) {
@@ -318,6 +328,7 @@ export class Agent {
             if (checkInterrupt()) break;
             let history = this.history.getHistory();
             let res = await this.prompter.promptConvo(history);
+            if (checkInterrupt()) break;
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
 
@@ -332,9 +343,16 @@ export class Agent {
                 res = truncCommandMessage(res); // everything after the command is ignored
                 this.history.add(this.name, res);
                 
-                if (!commandExists(command_name)) {
-                    this.history.add('system', `Command ${command_name} does not exist.`);
-                    console.warn('Agent hallucinated command:', command_name)
+                const unavailable = commandUnavailableReason(this, command_name);
+                if (unavailable) {
+                    await this.history.add('system', unavailable);
+                    const failure = recordUnavailableAttempt(this, command_name);
+                    if (failure.stop) {
+                        await this.self_prompter.stop(false);
+                        this.routeResponse(source, `Automatic commands paused after repeated unavailable requests. ${unavailable}`);
+                        await this.history.save();
+                        break;
+                    }
                     continue;
                 }
 
@@ -462,27 +480,11 @@ export class Agent {
                 this.cleanKill(msg);
             }
         });
-        this.bot.on('death', () => {
-            this.actions.cancelResume();
-            this.actions.stop();
-        });
+        installDeathRecovery(this);
         this.bot.on('kicked', (reason) => {
             if (!this._disconnectHandled) {
                 const { msg } = handleDisconnection(this.name, reason);
                 this.cleanKill(msg);
-            }
-        });
-        this.bot.on('messagestr', async (message, _, jsonMsg) => {
-            if (jsonMsg.translate && jsonMsg.translate.startsWith('death') && message.startsWith(this.name)) {
-                console.log('Agent died: ', message);
-                let death_pos = this.bot.entity.position;
-                this.memory_bank.rememberPlace('last_death_position', death_pos.x, death_pos.y, death_pos.z);
-                let death_pos_text = null;
-                if (death_pos) {
-                    death_pos_text = `x: ${death_pos.x.toFixed(2)}, y: ${death_pos.y.toFixed(2)}, z: ${death_pos.z.toFixed(2)}`;
-                }
-                let dimention = this.bot.game.dimension;
-                this.handleMessage('system', `You died at position ${death_pos_text || "unknown"} in the ${dimention} dimension with the final message: '${message}'. Your place of death is saved as 'last_death_position' if you want to return. Previous actions were stopped and you have respawned.`);
             }
         });
         this.bot.on('idle', () => {
@@ -518,13 +520,14 @@ export class Agent {
     }
 
     async update(delta) {
+        if (this.recovering_from_death) return;
         await this.bot.modes.update();
         this.self_prompter.update(delta);
         await this.checkTaskDone();
     }
 
     isIdle() {
-        return !this.actions.executing;
+        return !this.recovering_from_death && !this.actions.executing;
     }
     
 

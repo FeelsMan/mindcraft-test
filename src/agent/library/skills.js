@@ -353,14 +353,13 @@ export async function attackEntity(bot, entity, kill=true) {
         await bot.attack(entity);
     }
     else {
-        bot.pvp.attack(entity);
-        while (world.getNearbyEntities(bot, 24).includes(entity)) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            if (bot.interrupt_code) {
-                bot.pvp.stop();
-                return false;
+        await bot.pvp.attack(entity);
+        try {
+            while (world.getNearbyEntities(bot, 24).includes(entity)) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (bot.interrupt_code) return false;
             }
-        }
+        } finally { await bot.pvp.stop(); }
         log(bot, `Successfully killed ${entity.name}.`);
         await pickupNearbyItems(bot);
         return true;
@@ -380,31 +379,31 @@ export async function defendSelf(bot, range=9) {
     bot.modes.pause('cowardice');
     let attacked = false;
     let enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
-    while (enemy) {
-        await equipHighestAttack(bot);
-        if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
-            try {
-                bot.pathfinder.setMovements(new pf.Movements(bot));
-                await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
-            } catch (err) {/* might error if entity dies, ignore */}
+    try {
+        while (enemy) {
+            await equipHighestAttack(bot);
+            if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
+                try {
+                    bot.pathfinder.setMovements(new pf.Movements(bot));
+                    await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
+                } catch (err) {/* might error if entity dies, ignore */}
+            }
+            if (bot.entity.position.distanceTo(enemy.position) <= 2) {
+                try {
+                    bot.pathfinder.setMovements(new pf.Movements(bot));
+                    let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
+                    await bot.pathfinder.goto(inverted_goal, true);
+                } catch (err) {/* might error if entity dies, ignore */}
+            }
+            await bot.pvp.attack(enemy);
+            attacked = true;
+            await new Promise(resolve => setTimeout(resolve, 500));
+            enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
+            if (bot.interrupt_code) {
+                return false;
+            }
         }
-        if (bot.entity.position.distanceTo(enemy.position) <= 2) {
-            try {
-                bot.pathfinder.setMovements(new pf.Movements(bot));
-                let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
-                await bot.pathfinder.goto(inverted_goal, true);
-            } catch (err) {/* might error if entity dies, ignore */}
-        }
-        bot.pvp.attack(enemy);
-        attacked = true;
-        await new Promise(resolve => setTimeout(resolve, 500));
-        enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), range);
-        if (bot.interrupt_code) {
-            bot.pvp.stop();
-            return false;
-        }
-    }
-    bot.pvp.stop();
+    } finally { await bot.pvp.stop(); }
     if (attacked)
         log(bot, `Successfully defended self.`);
     else
@@ -528,7 +527,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
     return collected > 0;
 }
 
-export async function pickupNearbyItems(bot) {
+export async function pickupNearbyItems(bot, { itemName = null } = {}) {
     /**
      * Pick up all nearby items.
      * @param {MinecraftBot} bot, reference to the minecraft bot.
@@ -537,10 +536,12 @@ export async function pickupNearbyItems(bot) {
      * await skills.pickupNearbyItems(bot);
      **/
     const distance = 8;
-    const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' && bot.entity.position.distanceTo(entity.position) < distance);
+    const getNearestItem = bot => bot.nearestEntity(entity => entity.name === 'item' &&
+        (!itemName || entity.getDroppedItem?.()?.name === itemName) &&
+        bot.entity.position.distanceTo(entity.position) < distance);
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
-    while (nearestItem) {
+    while (nearestItem && !bot.interrupt_code) {
         let movements = new pf.Movements(bot);
         movements.canDig = false;
         bot.pathfinder.setMovements(movements);

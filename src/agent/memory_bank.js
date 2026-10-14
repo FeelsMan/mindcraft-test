@@ -16,7 +16,13 @@ export class MemoryBank {
 	}
 
 	loadJson(json) {
-		this.memory = json;
+		this.memory = {};
+        if (!json || typeof json !== 'object' || Array.isArray(json)) return;
+        for (const [name, pos] of Object.entries(json)) {
+            if (['__proto__', 'constructor', 'prototype'].includes(name)) continue;
+            if (Array.isArray(pos) && pos.length === 3 && pos.every(Number.isFinite))
+                this.memory[name] = [...pos];
+        }
 	}
 
 	getKeys() {

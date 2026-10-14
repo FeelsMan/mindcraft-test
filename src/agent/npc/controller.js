@@ -103,6 +103,7 @@ export class NPCContoller {
     }
 
     async executeNext() {
+        if (this.agent.gather_goal?.active) return;
         if (!this.agent.isIdle()) return;
         await this.agent.actions.runAction('npc:moveAway', async () => {
             await skills.moveAway(this.agent.bot, 2);

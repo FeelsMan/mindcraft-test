@@ -1,3 +1,17 @@
+import assert from 'node:assert/strict';
+
+export function actionPriority(label) {
+    if (label === 'mode:self_preservation') return 100;
+    if (label === 'mode:cowardice') return 90;
+    if (label === 'mode:self_defense') return 80;
+    if (label === 'mode:unstuck') return 70;
+    if (label === 'action:makeGoal' || label === 'action:gatherGoal') return 50;
+    if (label.startsWith('mode:') || label.startsWith('npc:')) return 10;
+    return 40;
+}
+
+const deferred = message => ({ success: false, message, interrupted: true, timedout: false, deferred: true });
+
 export class ActionManager {
     constructor(agent) {
         this.agent = agent;
@@ -8,170 +22,113 @@ export class ActionManager {
         this.resume_func = null;
         this.resume_name = '';
         this.last_action_time = 0;
-        this.recent_action_counter = 0;
+        this.handoff = Promise.resolve();
+        this.currentRun = null;
     }
 
-    async resumeAction(actionFn, timeout) {
-        return this._executeResume(actionFn, timeout);
+    async resumeAction() { return this._executeResume(); }
+
+    async runAction(label, fn, { timeout = 10, resume = false } = {}) {
+        if (resume) return this._executeResume(label, fn, timeout);
+        return this._executeAction(label, fn, timeout);
     }
 
-    async runAction(actionLabel, actionFn, { timeout, resume = false } = {}) {
-        if (resume) {
-            return this._executeResume(actionLabel, actionFn, timeout);
-        } else {
-            return this._executeAction(actionLabel, actionFn, timeout);
-        }
-    }
-
-    async stop() {
+    async stop(reason = 'stop') {
         if (!this.executing) return;
-        const timeout = setTimeout(() => {
-            this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
-        }, 10000);
+        if (this.currentRun) this.currentRun.interruptedBy ||= reason;
+        if (!this.stopping) {
+            this.stopping = this._waitForStop();
+            this.stopping.finally(() => { this.stopping = null; }).catch(() => {});
+        }
+        return this.stopping;
+    }
+
+    async _waitForStop() {
+        const deadline = Date.now() + 10000;
+        console.log('Stopping current action...');
         while (this.executing) {
             this.agent.requestInterrupt();
-            console.log('waiting for code to finish executing...');
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        clearTimeout(timeout);
-    } 
-
-    cancelResume() {
-        this.resume_func = null;
-        this.resume_name = null;
-    }
-
-    async _executeResume(actionLabel = null, actionFn = null, timeout = 10) {
-        const new_resume = actionFn != null;
-        if (new_resume) { // start new resume
-            this.resume_func = actionFn;
-            assert(actionLabel != null, 'actionLabel is required for new resume');
-            this.resume_name = actionLabel;
-        }
-        if (this.resume_func != null && (this.agent.isIdle() || new_resume) && (!this.agent.self_prompter.isActive() || new_resume)) {
-            this.currentActionLabel = this.resume_name;
-            let res = await this._executeAction(this.resume_name, this.resume_func, timeout);
-            this.currentActionLabel = '';
-            return res;
-        } else {
-            return { success: false, message: null, interrupted: false, timedout: false };
+            if (Date.now() >= deadline) {
+                this.agent.cleanKill('Action could not stop safely; restarting with saved state.');
+                throw new Error('Action cancellation timed out');
+            }
+            await new Promise(resolve => setTimeout(resolve, 25));
         }
     }
 
-    async _executeAction(actionLabel, actionFn, timeout = 10) {
-        let TIMEOUT;
+    cancelResume() { this.resume_func = null; this.resume_name = null; }
+
+    async _executeResume(label = null, fn = null, timeout = 10) {
+        const fresh = fn != null;
+        if (fresh) {
+            assert(label != null, 'actionLabel is required for new resume');
+            this.resume_func = fn;
+            this.resume_name = label;
+        }
+        if (this.agent.gather_goal?.active) return deferred('A managed goal owns the action slot.');
+        if (this.resume_func && (this.agent.isIdle() || fresh) && (!this.agent.self_prompter.isActive() || fresh))
+            return this._executeAction(this.resume_name, this.resume_func, timeout);
+        return { success: false, message: null, interrupted: false, timedout: false };
+    }
+
+    async _executeAction(label, fn, timeout = 10) {
+        // Serialize handoffs, not whole actions: an emergency can request a
+        // stop immediately, but two waiters cannot both claim the bot afterward.
+        const previous = this.handoff;
+        let release;
+        this.handoff = new Promise(resolve => { release = resolve; });
+        await previous;
+        let run;
         try {
-            if (this.last_action_time > 0) {
-                let time_diff = Date.now() - this.last_action_time;
-                if (time_diff < 20) {
-                    this.recent_action_counter++;
-                }
-                else {
-                    this.recent_action_counter = 0;
-                }
-                if (this.recent_action_counter > 3) {
-                    console.warn('Fast action loop detected, cancelling resume.');
-                    this.cancelResume(); // likely cause of repetition
-                }
-                if (this.recent_action_counter > 5) {
-                    console.error('Infinite action loop detected, shutting down.');
-                    this.agent.cleanKill('Infinite action loop detected, shutting down.');
-                    return { success: false, message: 'Infinite action loop detected, shutting down.', interrupted: false, timedout: false };
-                }
-            }
-            this.last_action_time = Date.now();
-            console.log('executing code...\n');
-
-            // await current action to finish (executing=false), with 10 seconds timeout
-            // also tell agent.bot to stop various actions
-            if (this.executing) {
-                console.log(`action "${actionLabel}" trying to interrupt current action "${this.currentActionLabel}"`);
-            }
-            await this.stop();
-
-            // clear bot logs and reset interrupt code
-            this.agent.clearBotLogs();
-
+            const priority = actionPriority(label);
+            if (this.agent.gather_goal?.active && priority < 50)
+                return deferred('A managed goal owns the action slot.');
+            if (this.currentRun && priority < this.currentRun.priority)
+                return deferred(`Waiting for ${this.currentActionLabel}.`);
+            await this.stop(label);
+            if (this.agent.recovering_from_death) return deferred('Waiting for respawn recovery.');
+            run = { label, priority, interruptedBy: null, timedout: false };
+            this.currentRun = run;
             this.executing = true;
-            this.currentActionLabel = actionLabel;
-            this.currentActionFn = actionFn;
-
-            // timeout in minutes
-            if (timeout > 0) {
-                TIMEOUT = this._startTimeout(timeout);
-            }
-
-            // start the action
-            await actionFn();
-
-            // mark action as finished + cleanup
-            this.executing = false;
-            this.currentActionLabel = '';
-            this.currentActionFn = null;
-            clearTimeout(TIMEOUT);
-
-            // get bot activity summary
-            let output = this.getBotOutputSummary();
-            let interrupted = this.agent.bot.interrupt_code;
-            let timedout = this.timedout;
+            this.currentActionLabel = label;
+            this.currentActionFn = fn;
+            this.timedout = false;
+            this.last_action_time = Date.now();
             this.agent.clearBotLogs();
+        } finally { release(); }
 
-            // if not interrupted and not generating, emit idle event
-            if (!interrupted) {
-                this.agent.bot.emit('idle');
-            }
+        let error = null;
+        let timer;
+        if (timeout > 0) timer = setTimeout(() => {
+            if (this.currentRun !== run) return;
+            run.timedout = this.timedout = true;
+            this.stop('timeout').catch(err => console.error('Action timeout:', err));
+        }, timeout * 60000);
+        try { await fn(); }
+        catch (err) { error = err; }
+        finally { clearTimeout(timer); }
 
-            // return action status report
-            return { success: true, message: output, interrupted, timedout };
-        } catch (err) {
-            this.executing = false;
-            this.currentActionLabel = '';
-            this.currentActionFn = null;
-            clearTimeout(TIMEOUT);
+        const interrupted = Boolean(run.interruptedBy || this.agent.bot.interrupt_code);
+        let message = this.getBotOutputSummary();
+        if (error && !interrupted) {
+            console.error('Action failed:', error);
+            message += `\nAction failed: ${error.message || error}`;
             this.cancelResume();
-            console.error("Code execution triggered catch:", err);
-            // Log the full stack trace
-            console.error(err.stack);
-            await this.stop();
-            err = err.toString();
-
-            let message = this.getBotOutputSummary() +
-                '!!Code threw exception!!\n' +
-                'Error: ' + err + '\n' +
-                'Stack trace:\n' + err.stack+'\n';
-
-            let interrupted = this.agent.bot.interrupt_code;
-            this.agent.clearBotLogs();
-            if (!interrupted) {
-                this.agent.bot.emit('idle');
-            }
-            return { success: false, message, interrupted, timedout: false };
         }
+        const result = { success: !error, message, interrupted, timedout: run.timedout, interruptedBy: run.interruptedBy };
+        this.agent.clearBotLogs();
+        this.currentRun = null;
+        this.executing = false;
+        this.currentActionLabel = '';
+        this.currentActionFn = null;
+        if (!interrupted && !this.agent.gather_goal?.active) this.agent.bot.emit('idle');
+        return result;
     }
 
     getBotOutputSummary() {
-        const { bot } = this.agent;
-        if (bot.interrupt_code && !this.timedout) return '';
-        let output = bot.output;
-        const MAX_OUT = 500;
-        if (output.length > MAX_OUT) {
-            output = `Action output is very long (${output.length} chars) and has been shortened.\n
-          First outputs:\n${output.substring(0, MAX_OUT / 2)}\n...skipping many lines.\nFinal outputs:\n ${output.substring(output.length - MAX_OUT / 2)}`;
-        }
-        else {
-            output = 'Action output:\n' + output.toString();
-        }
-        bot.output = '';
-        return output;
+        const output = String(this.agent.bot.output || '');
+        this.agent.bot.output = '';
+        if (output.length > 500) return `Action output (shortened):\n${output.slice(0, 250)}\n...\n${output.slice(-250)}`;
+        return 'Action output:\n' + output;
     }
-
-    _startTimeout(TIMEOUT_MINS = 10) {
-        return setTimeout(async () => {
-            console.warn(`Code execution timed out after ${TIMEOUT_MINS} minutes. Attempting force stop.`);
-            this.timedout = true;
-            this.agent.history.add('system', `Code execution timed out after ${TIMEOUT_MINS} minutes. Attempting force stop.`);
-            await this.stop(); // last attempt to stop
-        }, TIMEOUT_MINS * 60 * 1000);
-    }
-
 }

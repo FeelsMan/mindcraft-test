@@ -1,5 +1,4 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
-import { NPCData } from './npc/data.js';
 import settings from './settings.js';
 
 
@@ -16,6 +15,7 @@ export class History {
 
         // Natural language memory as a summary of recent messages + previous memory
         this.memory = '';
+        this.evidence = [];
 
         // Maximum number of messages to keep in context before saving chunk to memory
         this.max_messages = settings.max_messages;
@@ -31,15 +31,16 @@ export class History {
     }
 
     async summarizeMemories(turns) {
-        console.log("Storing memories...");
-        this.memory = await this.agent.prompter.promptMemSaving(turns);
-
-        if (this.memory.length > 500) {
-            this.memory = this.memory.slice(0, 500);
-            this.memory += '...(Memory truncated to 500 chars. Compress it more next time)';
+        const reports = turns.filter(t => t.role === 'system' &&
+            typeof t.content === 'string' &&
+            !t.content.startsWith('You are self-prompting'));
+        for (const report of reports) {
+            this.evidence.push(report.content.slice(0, 600));
         }
-
-        console.log("Memory updated to: ", this.memory);
+        this.evidence = this.evidence.slice(-6);
+        this.memory = this.evidence.length ?
+            'Past system reports (historical; current stats and inventory take priority):\n' +
+            this.evidence.join('\n') : '';
     }
 
     async appendFullHistory(to_store) {
@@ -83,6 +84,9 @@ export class History {
         try {
             const data = {
                 memory: this.memory,
+                evidence_version: 1,
+                evidence: this.evidence,
+                places: this.agent.memory_bank.getJson(),
                 turns: this.turns,
                 self_prompting_state: this.agent.self_prompter.state,
                 self_prompt: this.agent.self_prompter.isStopped() ? null : this.agent.self_prompter.prompt,
@@ -104,8 +108,16 @@ export class History {
                 return null;
             }
             const data = JSON.parse(readFileSync(this.memory_fp, 'utf8'));
-            this.memory = data.memory || '';
-            this.turns = data.turns || [];
+            // Old generated summaries and turns may contain fabricated facts.
+            const currentFormat = data.evidence_version === 1;
+            this.evidence = currentFormat && Array.isArray(data.evidence) ?
+                data.evidence.filter(x => typeof x === 'string').slice(-6) : [];
+            this.memory = this.evidence.length ?
+                'Past system reports (historical; current stats and inventory take priority):\n' +
+                this.evidence.join('\n') : '';
+            this.turns = currentFormat && Array.isArray(data.turns) ? data.turns : [];
+            this.agent.memory_bank.loadJson(data.places || {});
+            if (!currentFormat) console.log('Ignoring legacy generated summary and turns; goal retained.');
             console.log('Loaded memory:', this.memory);
             return data;
         } catch (error) {
@@ -117,5 +129,6 @@ export class History {
     clear() {
         this.turns = [];
         this.memory = '';
+        this.evidence = [];
     }
 }

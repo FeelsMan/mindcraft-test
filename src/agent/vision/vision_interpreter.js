@@ -5,9 +5,10 @@ import fs from 'fs';
 export class VisionInterpreter {
     constructor(agent, allow_vision) {
         this.agent = agent;
-        this.allow_vision = allow_vision;
+        this.allow_vision = allow_vision && agent.bot.protocolVersion < 777;
+        if (allow_vision && !this.allow_vision) console.warn('[Native 26.3] Screenshot vision is unavailable until the renderer supports 26.3 assets.');
         this.fp = './bots/'+agent.name+'/screenshots/';
-        if (allow_vision) {
+        if (this.allow_vision) {
             this.camera = new Camera(agent.bot, this.fp);
         }
     }

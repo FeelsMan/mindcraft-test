@@ -223,6 +223,18 @@ export class Prompter {
 
             let prompt = this.profile.conversing;
             prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
+            prompt += '\nOperational rules: Live inventory and tool results override old memory and examples. '
+                + 'A proposed action is not a completed action. After a failed recipe, obtain the missing ingredients before retrying. '
+                + 'Never invent player names, coordinates, or successful actions. Never rename the current position to a missing death waypoint.';
+            prompt += '\nOnly commands in the current command docs are available. Older examples and memories do not grant extra tools. '
+                + 'If a command is unavailable, do not retry it with different wording or move away and try again. Explain the limitation.';
+            if (!settings.allow_insecure_coding)
+                prompt += '\n!newAction is unavailable because code generation is disabled.';
+            if (!this.agent.self_prompter.isStopped()) {
+                prompt += '\nCURRENT GOAL: ' + this.agent.self_prompter.prompt
+                    + '\nChoose one command that advances this goal. Preserve items the goal asks you to keep. '
+                    + 'Check live inventory before claiming completion, then use !endGoal. Avoid unrelated crafting.';
+            }
             let generation;
 
             try {
