@@ -41,7 +41,10 @@ export function planMake(item, target, inventory, nearbyTable, recipesFor) {
         if (!recipe) throw new Error('No supported oak/cobblestone recipe found for ' + name);
         const [ingredients, result] = recipe;
         const batches = Math.ceil(missing / result.craftedCount);
-        for (const [ingredient, quantity] of Object.entries(ingredients)) {
+        // Make wooden prerequisites before entering a mining area, rather than
+        // collecting stone and then leaving again to find sticks/logs.
+        const ordered = Object.entries(ingredients).sort(([a], [b]) => Number(a === 'cobblestone') - Number(b === 'cobblestone'));
+        for (const [ingredient, quantity] of ordered) {
             ensure(ingredient, quantity * batches, [...chain, name]);
             stock[ingredient] -= quantity * batches;
         }
@@ -68,6 +71,7 @@ export async function startMakeGoal(agent, item, target, api) {
     let initial;
     try { initial = plan(); } catch (error) { return error.message; }
     const goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running' };
+    agent.bot.craftingGoal = goal;
     agent.gather_goal = goal; // shared command guard, !stop and !endGoal
     agent.gather_epoch = (agent.gather_epoch || 0) + 1;
     agent.actions.cancelResume();
@@ -76,6 +80,7 @@ export async function startMakeGoal(agent, item, target, api) {
     agent.bot.once('end', cancel);
     const cleanup = () => {
         goal.active = false;
+        if (agent.bot.craftingGoal === goal) delete agent.bot.craftingGoal;
         agent.gather_epoch = (agent.gather_epoch || 0) + 1;
         agent.bot.removeListener('death', cancel);
         agent.bot.removeListener('end', cancel);

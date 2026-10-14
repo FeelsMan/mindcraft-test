@@ -22,6 +22,10 @@ Combat, escape, and unstuck actions take priority over retrieval. Interrupted cr
 
 Station ownership is session-local and is cleared on death, disconnect, or a dimension change. Existing tables can still be used after a restart, but are not automatically claimed as Mia's property. Resource collection searches the nearby loaded world; unavailable logs or stone produce a bounded failure report rather than an endless search.
 
+Managed crafting now gathers wooden prerequisites before stone and reserves crafting ingredients against routine pathfinder scaffolding, including the collection plugin's separate movement settings. Dirt may still be used for ordinary navigation. Combat and urgent escape can use reserved blocks when necessary, after which the goal replans from the remaining inventory.
+
+Cobblestone collection for a make goal selects exposed stone with a supported side position and an existing walking route. The approach cannot dig, bridge, pillar, or drop more than one block. It will not mine the block under Mia's feet or dig a vertical shaft. If no safe stone is reachable, move her near an exposed stone wall or an accessible cave; autonomous staircase mining is not implemented by this repair.
+
 ## Validation
 
 Run `npm run test:goals` in a repository checkout. The standalone patch also supports `--test` to run all included goal and station tests directly without changing package settings.

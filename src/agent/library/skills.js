@@ -4,9 +4,15 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { CraftingStation } from '../crafting_station.js';
+import { protectCraftingMaterials } from '../navigation_policy.js';
+import { findSafeStoneTargets, collectStoneFromSide } from '../safe_stone.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
+
+function navigationMovements(bot) {
+    return protectCraftingMaterials(bot, new pf.Movements(bot));
+}
 
 export function log(bot, message) {
     bot.output += message + '\n';
@@ -43,8 +49,10 @@ function craftingStation(bot) {
                 throw new Error('Could not break my crafting table; it remains remembered.');
         },
         pickup: async position => {
-            await pickupNearbyItems(bot, { itemName: 'crafting_table' });
-            if (!bot.interrupt_code) await goToPosition(bot, position.x + 0.5, position.y, position.z + 0.5, 1);
+            // Occupy the cleared cell: stopping one block away can leave the
+            // dropped table just outside the player's pickup bounding box.
+            await goToPosition(bot, position.x + 0.5, position.y, position.z + 0.5, 0);
+            if (!bot.interrupt_code) await pickupNearbyItems(bot, { itemName: 'crafting_table' });
         },
         canCarry: () => bot.inventory.emptySlotCount() > 0 ||
             bot.inventory.items().some(item => item.name === 'crafting_table' && item.count < 64),
@@ -413,13 +421,13 @@ export async function defendSelf(bot, range=9) {
             await equipHighestAttack(bot);
             if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
                 try {
-                    bot.pathfinder.setMovements(new pf.Movements(bot));
+                    bot.pathfinder.setMovements(navigationMovements(bot));
                     await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
                 } catch (err) {/* might error if entity dies, ignore */}
             }
             if (bot.entity.position.distanceTo(enemy.position) <= 2) {
                 try {
-                    bot.pathfinder.setMovements(new pf.Movements(bot));
+                    bot.pathfinder.setMovements(navigationMovements(bot));
                     let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
                     await bot.pathfinder.goto(inverted_goal, true);
                 } catch (err) {/* might error if entity dies, ignore */}
@@ -470,9 +478,25 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
 
     let collected = 0;
 
-    const movements = new pf.Movements(bot);
+    const movements = navigationMovements(bot);
     movements.dontMineUnderFallingBlock = false;
     movements.dontCreateFlow = true;
+
+    if (blockType === 'cobblestone' && bot.craftingGoal?.active) {
+        movements.dontMineUnderFallingBlock = true;
+        for (let i = 0; i < num && !bot.interrupt_code; i++) {
+            const canBreak = block => movements.safeToBreak(block);
+            const candidates = findSafeStoneTargets(bot, canBreak);
+            const success = await collectStoneFromSide(bot, candidates, {
+                movements: () => navigationMovements(bot), canBreak,
+                prepareTravel: position => bot.craftingStation?.beforeTravel(position),
+                log: message => log(bot, message)
+            });
+            if (!success) break;
+            collected++;
+        }
+        return collected > 0;
+    }
 
     // Blocks to ignore safety for, usually next to lava/water
     const unsafeBlocks = ['obsidian'];
@@ -536,7 +560,12 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
                 success = true;
             }
             else {
-                await bot.collectBlock.collect(block);
+                // Collectblock otherwise reinstalls its own default movement
+                // object, which permits spending cobblestone on scaffolding.
+                const previous = bot.collectBlock.movements;
+                bot.collectBlock.movements = navigationMovements(bot);
+                try { await bot.collectBlock.collect(block); }
+                finally { bot.collectBlock.movements = previous; }
                 success = true;
             }
             if (success)
@@ -576,7 +605,7 @@ export async function pickupNearbyItems(bot, { itemName = null } = {}) {
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
     while (nearestItem && !bot.interrupt_code) {
-        let movements = new pf.Movements(bot);
+        let movements = navigationMovements(bot);
         movements.canDig = false;
         bot.pathfinder.setMovements(movements);
         await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1));
@@ -618,7 +647,7 @@ export async function breakBlockAt(bot, x, y, z) {
 
         if (bot.entity.position.distanceTo(block.position) > 4.5) {
             let pos = block.position;
-            let movements = new pf.Movements(bot);
+            let movements = navigationMovements(bot);
             movements.canPlaceOn = false;
             movements.allow1by1towers = false;
             bot.pathfinder.setMovements(movements);
@@ -793,13 +822,13 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         // too close
         let goal = new pf.goals.GoalNear(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z, 2);
         let inverted_goal = new pf.goals.GoalInvert(goal);
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(navigationMovements(bot));
         await bot.pathfinder.goto(inverted_goal);
     }
     if (bot.entity.position.distanceTo(targetBlock.position) > 4.5) {
         // too far
         let pos = targetBlock.position;
-        let movements = new pf.Movements(bot);
+        let movements = navigationMovements(bot);
         bot.pathfinder.setMovements(movements);
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
@@ -1114,7 +1143,7 @@ export async function goToGoal(bot, goal) {
     await bot.craftingStation?.beforeTravel(destination);
     if (bot.interrupt_code) return false;
 
-    const nonDestructiveMovements = new pf.Movements(bot);
+    const nonDestructiveMovements = navigationMovements(bot);
     const dontBreakBlocks = ['glass', 'glass_pane', 'crafting_table'];
     for (let block of dontBreakBlocks) {
         nonDestructiveMovements.blocksCantBreak.add(mc.getBlockId(block));
@@ -1122,7 +1151,7 @@ export async function goToGoal(bot, goal) {
     nonDestructiveMovements.placeCost = 2;
     nonDestructiveMovements.digCost = 10;
 
-    const destructiveMovements = new pf.Movements(bot);
+    const destructiveMovements = navigationMovements(bot);
     destructiveMovements.blocksCantBreak.add(mc.getBlockId('crafting_table'));
 
     let final_movements = destructiveMovements;
@@ -1387,7 +1416,7 @@ export async function followPlayer(bot, username, distance=4) {
     await bot.craftingStation?.beforeTravel(player.position);
     if (bot.interrupt_code) return false;
 
-    const move = new pf.Movements(bot);
+    const move = navigationMovements(bot);
     move.digCost = 10;
     bot.pathfinder.setMovements(move);
     let doorCheckInterval = startDoorInterval(bot);
@@ -1466,10 +1495,10 @@ export async function moveAway(bot, distance) {
     }
     let goal = new pf.goals.GoalNear(pos.x, pos.y, pos.z, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(new pf.Movements(bot));
+    bot.pathfinder.setMovements(navigationMovements(bot));
 
     if (bot.modes.isOn('cheat')) {
-        const move = new pf.Movements(bot);
+        const move = navigationMovements(bot);
         const path = await bot.pathfinder.getPathTo(move, inverted_goal, 10000);
         let last_move = path.path[path.path.length-1];
         if (last_move) {
@@ -1497,7 +1526,7 @@ export async function moveAwayFromEntity(bot, entity, distance=16) {
      **/
     let goal = new pf.goals.GoalFollow(entity, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(new pf.Movements(bot));
+    bot.pathfinder.setMovements(navigationMovements(bot));
     await bot.pathfinder.goto(inverted_goal);
     return true;
 }
@@ -1516,7 +1545,7 @@ export async function avoidEnemies(bot, distance=16) {
     while (enemy) {
         const follow = new pf.goals.GoalFollow(enemy, distance+1); // move a little further away
         const inverted_goal = new pf.goals.GoalInvert(follow);
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(navigationMovements(bot));
         bot.pathfinder.setGoal(inverted_goal, true);
         await new Promise(resolve => setTimeout(resolve, 500));
         enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), distance);
@@ -1680,7 +1709,7 @@ export async function tillAndSow(bot, x, y, z, seedType=null) {
     // if distance is too far, move to the block
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(navigationMovements(bot));
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     if (block.name !== 'farmland') {
@@ -1725,7 +1754,7 @@ export async function activateNearestBlock(bot, type) {
     }
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(navigationMovements(bot));
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     await bot.activateBlock(block);

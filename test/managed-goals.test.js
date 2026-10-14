@@ -65,6 +65,11 @@ test('planner reserves the table and recipe materials rather than gathering an a
     assert.equal(p.filter(s => s.item === 'crafting_table').length, 1);
 });
 
+test('stone tools acquire wooden ingredients before cobblestone so mining is not interrupted for logs', () => {
+    const p = planMake('stone_pickaxe', 1, { wooden_pickaxe: 1, crafting_table: 1 }, false, name => recipes[name]);
+    assert(p.findIndex(s => s.item === 'stick') < p.findIndex(s => s.item === 'cobblestone'));
+});
+
 test('stone pickaxe bootstraps a mining tool and reserves both recipes before gathering stone', () => {
     const p = planMake('stone_pickaxe', 1, {}, false, name => recipes[name]);
     const mining = p.findIndex(s => s.type === 'gather' && s.item === 'cobblestone');
@@ -107,6 +112,7 @@ test('stone tool and furnace goals reuse stock and verify the resulting inventor
     const furnace = await start(f, 'furnace');
     assert.match(await furnace.done, /Crafting complete/);
     assert.equal(f.stock.furnace, 1);
+    assert.equal(f.agent.bot.craftingGoal, undefined);
     assert.equal(f.calls.filter(s => s.startsWith('craft:wooden')).length, 0);
     assert.equal(f.calls.filter(s => s === 'gather:cobblestone').length, 9);
 });
@@ -224,6 +230,7 @@ test('endGoal while paused prevents the saved target from resuming', async () =>
     await defense;
     assert.match(await goal.done, /cancelled/);
     assert.equal(goal.active, false);
+    assert.equal(f.agent.bot.craftingGoal, undefined);
     assert.equal(f.calls.filter(c => c.startsWith('craft:')).length, 0);
 });
 
