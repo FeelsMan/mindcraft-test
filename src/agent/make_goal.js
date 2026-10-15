@@ -75,18 +75,20 @@ export async function startMakeGoal(agent, item, target, api) {
     agent.gather_goal = goal; // shared command guard, !stop and !endGoal
     agent.gather_epoch = (agent.gather_epoch || 0) + 1;
     agent.actions.cancelResume();
-    const cancel = () => { goal.cancelled = true; };
-    agent.bot.once('death', cancel);
-    agent.bot.once('end', cancel);
+    const onDeath = () => { goal.cancelled = true; goal.cancelReason = 'death'; };
+    const onEnd = () => { goal.cancelled = true; goal.cancelReason = 'disconnect'; };
+    agent.bot.once('death', onDeath);
+    agent.bot.once('end', onEnd);
     const cleanup = () => {
         goal.active = false;
         if (agent.bot.craftingGoal === goal) delete agent.bot.craftingGoal;
         agent.gather_epoch = (agent.gather_epoch || 0) + 1;
-        agent.bot.removeListener('death', cancel);
-        agent.bot.removeListener('end', cancel);
+        agent.bot.removeListener('death', onDeath);
+        agent.bot.removeListener('end', onEnd);
     };
     try {
         await agent.self_prompter.stop();
+        agent.local_memory?.beginGoal(goal);
         await agent.history.save();
     } catch (error) { cleanup(); throw error; }
     const describe = steps => steps.map(s => s.type === 'gather' ?
@@ -96,10 +98,15 @@ export async function startMakeGoal(agent, item, target, api) {
     goal.done = (async () => {
         let report = '';
         let noProgress = 0;
+        let completed = false;
         try {
             for (let attempt = 0; attempt < 512 && !goal.cancelled; attempt++) {
                 if (!await waitForGoalTurn(agent, goal)) break;
+                if (goal.memoryDimension && goal.memoryDimension !== String(agent.bot.game?.dimension ?? 'unknown')) {
+                    goal.cancelled = true; goal.cancelReason = 'dimension'; break;
+                }
                 if (countItem(agent.bot, item) >= target) {
+                    completed = true;
                     report = `Crafting complete: ${countItem(agent.bot, item)}/${target} ${item} in inventory. Kept the item; goal stopped.`;
                     break;
                 }
@@ -107,6 +114,7 @@ export async function startMakeGoal(agent, item, target, api) {
                 const step = steps[0];
                 if (!step) throw new Error('Planner produced no next step.');
                 const before = countItem(agent.bot, step.item);
+                agent.local_memory?.beginStep(goal, step);
                 // One batch/block per action, then plan again from real inventory.
                 console.log('Make next step:', step);
                 let verified = false;
@@ -123,7 +131,11 @@ export async function startMakeGoal(agent, item, target, api) {
                     }
                 }, { timeout: 1 });
                 if (goal.cancelled) break;
-                if (result.timedout) throw new Error('Action timed out; goal stopped without claiming completion.');
+                agent.local_memory?.stepResult(goal, step, verified);
+                if (result.timedout) {
+                    agent.local_memory?.failStep(goal, step, 'Action timed out; output was not verified.');
+                    throw new Error('Action timed out; goal stopped without claiming completion.');
+                }
                 if (result.interrupted || result.deferred) {
                     goal.status = 'paused';
                     // A safety action may have consumed or collected items.
@@ -131,14 +143,21 @@ export async function startMakeGoal(agent, item, target, api) {
                     continue;
                 }
                 noProgress = result.success && verified ? 0 : noProgress + 1;
-                if (noProgress >= 2)
-                    throw new Error(`Could not verify ${step.item} output. Check ingredients, reachable logs/stone, the pickaxe, and space for the crafting table.`);
+                if (noProgress >= 2) {
+                    const detail = String(agent.bot.output || '').trim().slice(-240);
+                    const reason = `Could not verify ${step.item} output.${detail ? ' ' + detail : ' Check ingredients, reachable logs/stone, the pickaxe, and space for the crafting table.'}`;
+                    agent.local_memory?.failStep(goal, step, reason);
+                    throw new Error(reason);
+                }
             }
-            if (goal.cancelled) report = 'Crafting goal cancelled.';
+            if (goal.cancelled && goal.cancelReason === 'death' && goal.memoryDeaths >= 2)
+                report = 'Crafting blocked after two deaths; target saved. Reassess surroundings before using !resumeGoal.';
+            else if (goal.cancelled) report = ['death', 'disconnect', 'dimension'].includes(goal.cancelReason) && agent.local_memory?.enabled ?
+                `Crafting paused after ${goal.cancelReason}; target saved for replanning.` : 'Crafting goal cancelled.';
             else if (!report) report = 'Crafting stopped at the action limit. Goal not marked complete.';
         } catch (error) {
             report = 'Crafting stopped: ' + error.message;
-        } finally { cleanup(); }
+        } finally { cleanup(); agent.local_memory?.finishGoal(goal, completed, report); }
         console.log(report);
         await agent.history.add('system', report);
         await agent.history.save();

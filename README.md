@@ -2,9 +2,9 @@
 
 A fork of [Mindcraft](https://github.com/mindcraft-bots/mindcraft) focused on making **Mia, a local LLM Minecraft companion, complete small survival tasks reliably**.
 
-The focus is practical: calculate the materials, execute one step, check the actual inventory, and recover when combat interrupts the job. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering and crafting, reusable crafting stations, and safer cobblestone collection.
+The focus is practical: calculate the materials, execute one step, check the actual inventory, and recover when the job is interrupted. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering and crafting, reusable crafting stations, safer cobblestone collection, and local SQLite memory.
 
-[Quick start](#quick-start-with-local-ollama) · [Commands](#try-the-managed-goals) · [Current limits](#current-limits) · [Runtime notes](docs/mia.md) · [Crafting and stations](docs/mia-crafting-stations.md)
+[Quick start](#quick-start-with-local-ollama) · [Commands](#try-the-managed-goals) · [Memory](docs/mia-memory.md) · [Current limits](#current-limits) · [Runtime notes](docs/mia.md) · [Crafting and stations](docs/mia-crafting-stations.md)
 
 ## What this fork adds
 
@@ -20,6 +20,8 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Safer stone collection | Managed cobblestone collection uses reachable, supported side positions. Its approach cannot dig a shaft, build a pillar, or bridge a gap. |
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
+| Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
+| Persistent managed targets | A configured world ID lets unfinished crafting/collection goals replan after restart or respawn. Explicit cancellation persists; blocked/completed goals do not automatically restart. |
 
 The work changes the agent's runtime and control logic. It uses existing LLMs, including Andy through Ollama; it does not introduce a new trained Andy model.
 
@@ -28,7 +30,7 @@ The work changes the agent's runtime and control logic. It uses existing LLMs, i
 ### Requirements
 
 - **Minecraft Java Edition 26.3**, the experimental target exercised by this branch.
-- **Node.js 22.x**, the documented Windows setup baseline, and Git or a ZIP download.
+- **Node.js 22.13 or newer** with built-in SQLite (22.23 is a compatible Windows baseline), and Git or a ZIP download.
 - [Ollama](https://ollama.com/) running locally for the profile below. Hosted model providers are also available through the existing profiles.
 - A Minecraft world/server the bot can join, with its actual address, port, and authentication mode.
 
@@ -113,6 +115,16 @@ Open the Mindcraft dashboard at [http://localhost:8080](http://localhost:8080), 
 
 ## Try the managed goals
 
+Configure local memory once for the current world, with Mia stopped:
+
+```powershell
+node scripts/configure-memory.cjs --world-id mia-survival-1 --bot Mia
+```
+
+Keep that ID for the same world when its LAN port changes. Configure a different
+ID before joining a different world. Memory works independently of the legacy
+`load_memory` setting. See [local memory setup and recovery](docs/mia-memory.md).
+
 Send these through Minecraft chat or the dashboard **one at a time**, allowing each goal to finish:
 
 ```text
@@ -136,9 +148,10 @@ During a managed goal:
 | --- | --- |
 | `!inventory` | Check the actual inventory. |
 | `!stats` | Check health, hunger, location, and other current stats. |
+| `!memory` | Inspect the current world's historical outcomes, locations, and saved goal. |
 | `!endGoal` or `!stop` | Cancel the goal, including while it is paused for combat. |
 
-Mia stops after verified completion. Combat and escape can interrupt her, after which she resumes the same target. Repeated failure, death, disconnect, or restart ends the managed goal. Start a new goal after recovery when appropriate.
+Mia stops after verified completion. Combat and escape can interrupt her, after which she resumes the same target. With a world ID configured, death/restart can restore the target and replan from current inventory. Repeated failures block the goal; two deaths prevent automatic continuation. Use `!resumeGoal` after addressing a blockage. `!stop` and `!endGoal` persist cancellation.
 
 ### How the crafting table behaves
 
@@ -150,16 +163,16 @@ To bring her own placed table back into inventory explicitly:
 !makeGoal("crafting_table", 1)
 ```
 
-That retrieves the owned station instead of crafting a duplicate. Station ownership is session-local and is cleared on death, disconnect, or a dimension change. See [crafting station details](docs/mia-crafting-stations.md).
+That retrieves the owned station instead of crafting a duplicate. Configured local memory retains her historical station across restarts, scoped by world and dimension, and checks loaded blocks before use. See [crafting station details](docs/mia-crafting-stations.md).
 
 ## Current limits
 
 - **26.3 support is experimental.** The pinned runtime includes compatibility fixes, but all new recipes, item components, and server/mod/plugin combinations have not been validated.
 - **Stone needs a safe existing approach.** Move Mia near exposed stone or an accessible cave if collection stops. Autonomous staircase/shaft mining is not implemented.
 - **The verified planner currently ends at wooden/stone tools and furnaces.** Smelting/iron progression and a material-counted shelter workflow are future extensions; making a furnace does not automatically start smelting.
-- **Goals and table ownership do not resume across process restarts.** Combat recovery within a running session is supported.
+- **Cross-session recovery requires the correct world ID.** Only managed crafting/collection targets are checkpointed; a general survival/base-building goal manager is not implemented.
 - **Browser rendering and screenshot vision are disabled for protocol 777 in this build.** Use Minecraft's spectator view to watch Mia's perspective.
-- **Memory currently uses the existing JSON history/summary and saved-place mechanisms.** The proposed SQLite retrieval memory is not implemented yet.
+- **Memory supplies historical evidence.** Resource areas can be depleted, structures can change, and the language model still needs reliable skills and planning. Memory does not train or replace the model.
 
 ## Validation
 
@@ -169,15 +182,22 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The current gameplay revision has **42 passing regression tests**, covering inventory verification, resource planning, combat handoffs, cancellation, table ownership/recovery, navigation reservations, safe stone approaches, and unavailable-command retries. See [test](test).
+The current gameplay revision has **66 passing regression tests**, covering inventory verification, resource planning, combat handoffs, cancellation, station ownership/recovery, navigation protections, unavailable-command retries, real SQLite persistence/scoping/cooldowns, restart/death goal recovery, bounded retrieval, and actual prompt/command entry points. See [test](test).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
+
+The memory integration check also terminated a bot process after two verified
+stone pickups, reopened its SQLite database in a new process, and completed the
+furnace with exactly six more cobblestone using the original placed table. It
+checked live table removal, world isolation, and cancellation across another
+process restart. No LLM was used for that controlled recovery check.
 
 Runtime revisions, package hashes, and data provenance are recorded in [the native runtime manifest](vendor/mia-26.3/manifest.json). See [Mia runtime and recovery notes](docs/mia.md) for more detail.
 
 ## Next steps
 
-- [ ] Local SQLite memory for verified outcomes, world-specific locations, and repeated-failure cooldowns.
+- [x] Local SQLite memory for verified outcomes, world-specific locations, and repeated-failure cooldowns.
+- [ ] General survival goal hierarchy with verified construction and food/base maintenance.
 - [ ] Safe staircase mining and more general resource acquisition.
 - [ ] Verified smelting and iron progression.
 - [ ] Shelter planning with calculated materials and checked placement.
@@ -186,6 +206,7 @@ Runtime revisions, package hashes, and data provenance are recorded in [the nati
 
 - [Mia runtime and recovery notes](docs/mia.md)
 - [Crafting, stations, and mining details](docs/mia-crafting-stations.md)
+- [Local memory and persistent managed goals](docs/mia-memory.md)
 - [General Mindcraft FAQ](FAQ.md) and [MineCollab task instructions](minecollab.md)
 - [Upstream Mindcraft](https://github.com/mindcraft-bots/mindcraft) and its [model/configuration reference](https://github.com/mindcraft-bots/mindcraft#configuration)
 - [Mineflayer and PrismarineJS](https://github.com/PrismarineJS/mineflayer)

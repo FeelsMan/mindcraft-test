@@ -38,8 +38,10 @@ export function installDeathRecovery(agent) {
                 const report = `You died and have now respawned in ${dimension}. Previous action has stopped. ` +
                     (position ? `Actual death position: ${position.join(', ')}; saved as last_death_position. ` : 'Death position was unavailable. ') +
                     'Check current inventory and surroundings before continuing. Recover items only if safe.';
+                if (agent.gather_goal?.done) await agent.gather_goal.done;
+                const resumed = await agent.resumeMemoryGoal?.();
                 // Active autonomous loop will read the report on its next step.
-                if (agent.self_prompter.isActive()) await agent.history.add('system', report);
+                if (resumed || agent.self_prompter.isActive()) await agent.history.add('system', report);
                 else await agent.handleMessage('system', report, 1);
                 await agent.history.save();
             } catch (error) {

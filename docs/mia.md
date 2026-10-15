@@ -22,13 +22,13 @@ For an existing locally modified installation, preserve `settings.js`, personal 
 - Hunting, incidental item collection, torch placement, idle staring, and NPC routines yield while the goal is active. Serialized action handoffs prevent two callers from owning the bot at once.
 - PvP attack/stop promises are awaited. Concurrent stop requests share a pending cleanup, preventing a late cleanup from clearing a later owner's movement goal.
 
-Use `!inventory` and `!stats` during a goal. `!endGoal` or `!stop` cancels it, including while it is paused for safety. Repeated lack of verified progress stops it with a report. Death, disconnection, and process restart end the goal; cross-session goal continuation is not implemented.
+Use `!inventory`, `!stats`, and `!memory` during a goal. `!endGoal` or `!stop` persists cancellation, including while paused for safety. Repeated lack of verified progress blocks the target. With a stable world ID configured, local memory can replan after death, disconnect, or restart. Two deaths block automatic continuation. See [memory setup and recovery](mia-memory.md).
 
 ## Stations and command availability
 
 Mia remembers the exact coordinates of a table placed by her crafting routine. Later crafts return there. Normal movement, mining, and player-following beyond 32 blocks retrieve that table first and verify pickup. A table borrowed from another player is not marked as owned or retrieved. An interrupted table pickup retains its pending drop state. `!makeGoal("crafting_table", 1)` retrieves her placed station instead of crafting another to meet the inventory target.
 
-Ownership is session-local and clears on death, disconnect, or a dimension change. Tables can still be used after a restart without automatically being claimed.
+Configured memory retains historical ownership per world/dimension across restart and death. Loaded blocks are revalidated before use; a missing table is forgotten. Unloaded chunks remain unknown. Nearby player tables are not adopted.
 
 Disabled commands are filtered from the model's command docs and rejected at execution. Two requests for the same unavailable command, or three unavailable requests in total, pause automatic commands and explain the limitation. Changing arguments or interleaving valid commands does not reset that budget; a new human instruction does.
 
@@ -36,16 +36,21 @@ The managed commands work with `allow_insecure_coding: false`. They do not requi
 
 ## Validation and provenance
 
-Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 42 passing tests covering planning, delayed pickup, combat handoffs, cancellation, death, station ownership/recovery, navigation protections, safe mining, capability filtering, and the actual `Agent.handleMessage` retry loop with model transport mocked.
+Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 66 passing tests covering the previous crafting/navigation/retry behavior plus SQLite persistence, world/dimension isolation, failure cooldowns, goal recovery, bounded retrieval, and actual prompt/command entry points with model transport mocked.
 
 Additional local integration runs used a disposable official Java 26.3 server, the native packages, real collection/crafting/navigation skills, safety modes, and PvP plugin. They exercised wooden/stone tools, exact furnace ingredients, real zombie combat interruption/resume, station reuse outside the normal 16-block search, retrieval before a 40-block trip, foreign-table preservation, station relocation, and uneven terrain. The final mining run recorded no cobblestone scaffolding placements or stone support-block digs.
 
 Starting equipment and combat effects were supplied to isolate the execution and recovery behaviors. No external model/API was needed for those controlled runs. Full autonomous survival and all server/mod/plugin combinations remain unverified.
 
+A separate memory integration run killed the process after two verified stone
+pickups. A new process reopened SQLite, reused the original owned table, and
+completed the furnace with exactly six more cobblestone. Live table removal,
+world isolation, and cancellation surviving a third process were also checked.
+
 The runtime remains experimental: new 26.3 recipes and some protocol/item-component codecs are incomplete. Browser and screenshot vision are disabled on protocol 777 in this build; Minecraft spectator view provides the smooth in-game perspective.
 
 Pinned upstream revisions and checksums are recorded in [the runtime manifest](../vendor/mia-26.3/manifest.json). Archives retain upstream sources/licenses, and [the data notice](../vendor/mia-26.3/DATA-NOTICE.md) credits the data sources.
 
-## Planned memory work
+## Local memory and next steps
 
-Existing memory uses JSON history/summaries and saved places. The proposed SQLite upgrade will add retrieval of verified outcomes, world-specific locations, and repeated-failure cooldowns. It is a future feature, alongside safe staircase mining, verified smelting/iron progression, and a managed shelter workflow.
+Local SQLite memory now stores verified outcomes, world-specific locations, station ownership, managed targets, and repeated-failure cooldowns. It supplements the retained JSON history format and can use existing loopback Ollama embeddings. See [the memory guide](mia-memory.md). Safe staircase mining, verified smelting/iron progression, and a managed shelter/survival workflow remain future work.

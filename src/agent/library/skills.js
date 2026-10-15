@@ -61,6 +61,8 @@ function craftingStation(bot) {
     return bot.craftingStation;
 }
 
+export { craftingStation as getCraftingStation };
+
 export async function craftRecipe(bot, itemName, num=1) {
     /**
      * Attempt to craft the given item name from a recipe. May craft many items.

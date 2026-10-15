@@ -14,16 +14,22 @@ export class CraftingStation {
         this.verifyTimeoutMs = verifyTimeoutMs;
         this.record = null;
         this.busy = false;
-        bot.on('death', () => this.forget());
-        bot.on('end', () => this.forget());
+        // Drop session references while retaining the historical world location.
+        // It is revalidated against loaded blocks before any use or pickup.
+        bot.on('death', () => { this.record = null; });
+        bot.on('end', () => { this.record = null; });
     }
 
-    forget() { this.record = null; }
+    forget() {
+        if (this.record) this.bot.localMemory?.forgetStation(this.record);
+        this.record = null;
+    }
 
     remember(block) {
         if (block?.name !== 'crafting_table') throw new Error('Cannot remember an unverified crafting table.');
         const { x, y, z } = block.position;
         this.record = { position: { x, y, z }, dimension: dimension(this.bot), pickupMinimum: null };
+        this.bot.localMemory?.saveStation(this.record);
         this.api.log?.(`Leaving my crafting table at ${x}, ${y}, ${z}; reusing it nearby and packing it before travel beyond ${this.travelDistance} blocks.`);
     }
 
@@ -33,6 +39,8 @@ export class CraftingStation {
     }
 
     available() {
+        if (this.record && this.record.dimension !== dimension(this.bot)) this.record = null;
+        this.record ??= this.bot.localMemory?.station() ?? null;
         const record = this.record;
         if (!record) return false;
         if (record.dimension !== dimension(this.bot)) { this.forget(); return false; }
@@ -102,6 +110,7 @@ export class CraftingStation {
                 if (this.api.canCarry && !this.api.canCarry())
                     throw new Error('Make inventory space before collecting the crafting table.');
                 record.pickupMinimum = countInventoryItem(this.bot, 'crafting_table') + 1;
+                this.bot.localMemory?.saveStation(record);
                 await this.api.break(record.position);
             } else if (record.pickupMinimum === null) {
                 this.forget();

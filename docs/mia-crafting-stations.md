@@ -20,7 +20,7 @@ Before normal navigation, mining, or following a player beyond 32 blocks from he
 
 Combat, escape, and unstuck actions take priority over retrieval. Interrupted crafting retains its target and replans from current inventory after safety actions finish. If table recovery is interrupted after digging, the pending pickup is remembered. Failed recovery or a full inventory stops the trip instead of claiming that the table was packed. `!endGoal` and `!stop` cancel a crafting goal.
 
-Station ownership is session-local and is cleared on death, disconnect, or a dimension change. Existing tables can still be used after a restart, but are not automatically claimed as Mia's property. Resource collection searches the nearby loaded world; unavailable logs or stone produce a bounded failure report rather than an endless search.
+With [local memory configured](mia-memory.md), historical station ownership is retained per world/dimension across restart and death. Loaded blocks are revalidated before use; nearby player tables are not adopted. Resource collection searches the nearby loaded world; unavailable logs or stone produce a bounded failure report rather than an endless search. Verified resource areas are saved as historical planning hints.
 
 Managed crafting now gathers wooden prerequisites before stone and reserves crafting ingredients against routine pathfinder scaffolding, including the collection plugin's separate movement settings. Dirt may still be used for ordinary navigation. Combat and urgent escape can use reserved blocks when necessary, after which the goal replans from the remaining inventory.
 

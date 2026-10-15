@@ -1,4 +1,5 @@
 import { installDeathRecovery } from './death_recovery.js';
+import { installLocalMemory } from './memory_runtime.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
@@ -66,6 +67,7 @@ export class Agent {
 
         console.log(this.name, 'logging into minecraft...');
         this.bot = initBot(this.name);
+        installLocalMemory(this, { settings });
         
         // Connection Handler
         const onDisconnect = (event, reason) => {
@@ -75,6 +77,7 @@ export class Agent {
             // Log and Analyze
             // handleDisconnection handles logging to console and server
             const { type } = handleDisconnection(this.name, reason);
+            this.local_memory?.close();
      
             process.exit(1);
         };
@@ -120,9 +123,16 @@ export class Agent {
                 
                 console.log(`${this.name} spawned.`);
                 this.clearBotLogs();
+                if (save_data && this.local_memory?.enabled &&
+                    (save_data.memory_scope?.world !== this.local_memory.world ||
+                     save_data.memory_scope?.dimension !== this.local_memory.dimension)) {
+                    this.history.clear();
+                    save_data = null;
+                    console.log('[Mia memory] Old unscoped/different-world chat context was not loaded.');
+                }
               
-                this._setupEventHandlers(save_data, init_message);
                 this.startEvents();
+                await this._setupEventHandlers(save_data, init_message);
               
                 if (!load_mem) {
                     if (settings.task) {
@@ -196,6 +206,10 @@ export class Agent {
             bannedFood: ["rotten_flesh", "spider_eye", "poisonous_potato", "pufferfish", "chicken"]
         };
 
+        // A stored managed goal owns startup ahead of greetings/old auto-prompts.
+        // Its target is restored, then the existing planner reads live inventory.
+        if (!settings.task && await this.resumeMemoryGoal()) return;
+
         if (save_data?.self_prompt) {
             if (init_message) {
                 this.history.add('system', init_message);
@@ -218,6 +232,10 @@ export class Agent {
         else {
             this.openChat("Hello world! I am "+this.name);
         }
+    }
+
+    async resumeMemoryGoal(manual = false) {
+        return await this.local_memory?.resume(command => executeCommand(this, command), { manual }) || false;
     }
 
     checkAllPlayersPresent() {
@@ -535,6 +553,7 @@ export class Agent {
         this.history.add('system', msg);
         this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
         this.history.save();
+        this.local_memory?.close();
         process.exit(code);
     }
     async checkTaskDone() {

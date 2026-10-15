@@ -33,15 +33,15 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
 export const actionsList = [
     {
         name: '!makeGoal',
-        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables, cobblestone, wooden/stone tools and furnaces. Reuses existing tools and the remembered crafting table; mines stone only after obtaining a pickaxe. Pauses for combat and resumes the same target. Stops on death, cancellation, repeated failure or restart.',
+        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables, cobblestone, wooden/stone tools and furnaces. Reuses existing tools and the remembered crafting table. Pauses for combat. With local memory configured, saves the target across death/restart; explicit stop cancels it. Repeated failures block the goal.',
         params: {
             item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
         },
         perform: (agent, item, count) => startMakeGoal(agent, item, count, {
             recipes: getItemCraftingRecipes,
-            hasTable: bot => hasReusableTable(bot) || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
-            hasOwnedTable: hasReusableTable,
+            hasTable: bot => skills.getCraftingStation(bot).available() || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
+            hasOwnedTable: bot => { skills.getCraftingStation(bot); return hasReusableTable(bot); },
             recoverTable: bot => bot.craftingStation.pack(),
             collect: skills.collectBlock,
             pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
@@ -49,8 +49,14 @@ export const actionsList = [
         })
     },
     {
+        name: '!resumeGoal',
+        description: 'Resume the saved managed crafting/collection target in the current world and dimension, replanning from live inventory. Failure cooldowns still apply. Cancelled/completed goals are not restarted.',
+        perform: async agent => await agent.resumeMemoryGoal(true) ? 'Saved goal resumed from current inventory.' :
+            'No resumable managed goal in this world/dimension, or a goal is already active.'
+    },
+    {
         name: '!gatherGoal',
-        description: 'Gather and keep a total inventory count of logs, then stop automatically. Supports log blocks; no crafting. Stops on death or repeated lack of progress.',
+        description: 'Gather and keep a total inventory count of logs, then stop automatically. Supports log blocks; no crafting. A configured local memory saves the target across death/restart. Explicit stop cancels it; repeated lack of progress blocks it.',
         params: {
             item: { type: 'ItemName', description: 'Log item, such as oak_log.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing logs.', domain: [1, 64] }

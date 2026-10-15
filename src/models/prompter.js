@@ -231,6 +231,8 @@ export class Prompter {
             if (!settings.allow_insecure_coding)
                 prompt += '\n!newAction is unavailable because code generation is disabled.';
             prompt += '\nFor supported wooden/stone tools and furnaces, prefer !makeGoal when available: it calculates prerequisites and verifies the requested inventory total. Do not gather an arbitrary stack of materials.';
+            prompt += await this.agent.local_memory?.context(messages.filter(m => m.role !== 'assistant').slice(-3).map(m => m.content).join(' ').slice(-1000)) || '';
+            prompt += '\nHuman players can be addressed directly in chat. !startConversation is only for other bots; it cannot start a conversation with a human player.';
             const station = this.agent.bot.craftingStation;
             if (station?.available()) {
                 const { x, y, z } = station.record.position;

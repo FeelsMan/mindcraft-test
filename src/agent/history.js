@@ -86,6 +86,9 @@ export class History {
                 memory: this.memory,
                 evidence_version: 1,
                 evidence: this.evidence,
+                memory_scope: this.agent.local_memory?.persistentWorld ? {
+                    world: this.agent.local_memory.world, dimension: this.agent.local_memory.dimension
+                } : null,
                 places: this.agent.memory_bank.getJson(),
                 turns: this.turns,
                 self_prompting_state: this.agent.self_prompter.state,

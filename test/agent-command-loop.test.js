@@ -68,3 +68,25 @@ test('a human request for an unavailable command receives feedback without invok
     assert.equal(f.requests(), 0);
     assert.match(f.messages[0], /unavailable/);
 });
+
+test('actual startup handler restores a managed goal before invoking greeting or old self-prompt', async () => {
+    const f = fixture([]);
+    f.agent.bot.on = () => {};
+    f.agent.bot.autoEat = {};
+    f.agent.local_memory = { resume: async () => true };
+    await f.agent._setupEventHandlers({ self_prompt: 'old task', last_sender: 'OtherBot' }, 'Hello world');
+    assert.equal(f.requests(), 0);
+});
+
+test('actual resume command uses the memory recovery path, and memory query is available', async () => {
+    const f = fixture([]);
+    let called = false;
+    f.agent.local_memory = {
+        summary: () => 'Verified memory summary',
+        resume: async (_execute, { manual }) => { called = manual; return true; }
+    };
+    assert.match(await executeCommand(f.agent, '!resumeGoal'), /resumed/);
+    assert.equal(called, true);
+    f.agent.gather_goal = { active: true };
+    assert.equal(await executeCommand(f.agent, '!memory'), 'Verified memory summary');
+});
