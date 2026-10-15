@@ -1,53 +1,51 @@
-# Mia: native 26.3 and managed crafting
+# Mia runtime and recovery notes
 
-This fork includes the previously tested experimental native Minecraft Java 26.3 runtime and Mia's managed gathering/crafting commands. It also includes the earlier memory, Ollama embedding and death-recovery changes used by Mia.
+This fork combines experimental native Minecraft Java 26.3 support with Mia's managed gathering/crafting, reusable stations, navigation reservations, and safe stone collection. For installation and the local Ollama profile, start with the [README](../README.md). Supported targets and station behavior are described in [crafting and stations](mia-crafting-stations.md).
 
-## Existing working installation
+## Runtime and installation
 
-Use `mia-goal-recovery-fix.cjs` from this update in the existing Mindcraft folder. Stop Mindcraft first, then run:
+The `develop` branch contains the complete source and native runtime setup. `npm install` runs `scripts/install-native-minecraft.cjs`, which verifies the bundled archives, installs the pinned data overlay on top of `minecraft-data@3.117.0`, and then applies the remaining dependency patches. The overlay supplies the dataset files referenced by the tested 26.3 build; the standard package supplies older datasets.
 
-```powershell
-cd D:\mai\mindcraft
-node .\mia-goal-recovery-fix.cjs --apply
-node main.js
-```
+The native target uses protocol **777**. Connection address, port, version, and authentication remain controlled by `settings.js`. The README uses Node.js 22.x as the Windows setup baseline and explicitly configures Ollama; the checked-in default `andy.json` still selects OpenAI until edited.
 
-The patch updates source files only. It preserves connection settings, profiles, memories and the already installed native 26.3 dependencies. It checks the previous source before editing, retains rollback copies, and supports `--verify` and `--restore`.
+For an existing locally modified installation, preserve `settings.js`, personal profiles, `keys.json`, and `bots/` when updating. The separately supplied Mia installers target particular source revisions, check compatibility before editing, retain rollback copies, and preserve those local files. The current GitHub branch includes their gameplay changes; a fresh clone uses the normal dependency install.
 
-The GitHub branch includes the complete native runtime setup. Avoid pulling it over an uncommitted locally patched working copy; the standalone patch is intended for that copy.
+## Managed execution
 
-## Fresh clone
+`!makeGoal` supports oak planks, sticks, crafting tables, cobblestone, furnaces, and wooden/stone tools. `!gatherGoal` supports log blocks. Targets are total inventory quantities from 1 to 64.
 
-Use Node.js 22 or newer. Clone this fork's `develop` branch, run `npm install`, configure the actual server address/port and your model profile, then run `node main.js`. The postinstall script verifies the bundled native packages and installs the pinned 26.3 data overlay before applying the remaining Mindcraft patches. The overlay contains the exact dataset files referenced by the tested 26.3 build; the standard npm package supplies older datasets.
+- Mining, dropped-item pickup, and inventory verification run under one action owner. The planner waits for inventory updates and attempts pickup before deciding an item was not obtained. Verified inventory takes precedence over a false skill return.
+- Crafting reserves prerequisites in a virtual inventory, including the table and any required wooden pickaxe. It obtains wooden prerequisites before stone and replans from real inventory after each step.
+- During managed crafting, routine navigation and the collection plugin preserve recipe materials against scaffolding use. Urgent self-preservation, combat, and escape retain access to building blocks; the goal replans afterward.
+- Cobblestone mining chooses an exposed block and a supported side position with an existing walking route. Its approach cannot dig, build, pillar, or drop more than one block. It never selects the bot's own support block as a mining target. Pickup can enter a cleared block only when a solid floor and headroom remain.
+- Self-preservation, fleeing, combat, and unstuck actions can preempt a managed goal. The goal waits, retains its target, and replans afterward. A completed craft is not repeated merely because its action was interrupted.
+- Hunting, incidental item collection, torch placement, idle staring, and NPC routines yield while the goal is active. Serialized action handoffs prevent two callers from owning the bot at once.
+- PvP attack/stop promises are awaited. Concurrent stop requests share a pending cleanup, preventing a late cleanup from clearing a later owner's movement goal.
 
-Authentication remains controlled by `settings.js`. An online-mode server requires `auth: "microsoft"` and a valid Minecraft Java account. To play alongside the bot, use a separate licensed account for it and match the profile's `name` to its Minecraft name. A private offline-mode server can use `auth: "offline"` and the name Mia.
+Use `!inventory` and `!stats` during a goal. `!endGoal` or `!stop` cancels it, including while it is paused for safety. Repeated lack of verified progress stops it with a report. Death, disconnection, and process restart end the goal; cross-session goal continuation is not implemented.
 
-## What changed
+## Stations and command availability
 
-`!makeGoal("wooden_axe", 1)` retains the target quantity and checks actual inventory after every step. Supported targets remain oak planks, sticks, crafting tables and wooden tools. Recipes are planned from oak logs and inventory already on hand.
+Mia remembers the exact coordinates of a table placed by her crafting routine. Later crafts return there. Normal movement, mining, and player-following beyond 32 blocks retrieve that table first and verify pickup. A table borrowed from another player is not marked as owned or retrieved. An interrupted table pickup retains its pending drop state. `!makeGoal("crafting_table", 1)` retrieves her placed station instead of crafting another to meet the inventory target.
 
-- Mining, dropped-item pickup and inventory verification run under one action owner. The planner waits for inventory updates and attempts targeted pickup before deciding an item was not obtained. A false skill return does not override verified inventory.
-- Self-preservation, fleeing, combat and unstuck actions can preempt a managed goal. The goal waits for them to finish, then replans toward the same target using current inventory. It does not repeat a completed craft just because that action was interrupted.
-- Hunting, incidental item collection, torch placement, idle staring and NPC routines yield while a managed goal is active. Action handoffs are serialized, and lower-priority callers cannot interrupt safety actions.
-- PvP attack/stop promises are awaited. Concurrent stop requests share one pending cleanup, preventing a late PvP cleanup from clearing a later owner's movement goal.
-- Disabled commands are removed from the model's command docs and rejected at execution. Two requests for the same unavailable command, or three unavailable requests in total, pause automatic commands and explain the limitation. Changing arguments or interleaving a valid command does not reset that budget. A new human instruction resets it.
+Ownership is session-local and clears on death, disconnect, or a dimension change. Tables can still be used after a restart without automatically being claimed.
 
-Use `!inventory` and `!stats` during a managed goal. `!endGoal` or `!stop` cancels it, including while it is paused for safety. Death and disconnection cancel the managed goal; there is no automatic continuation across restart. Repeated lack of verified progress stops the goal with a report.
+Disabled commands are filtered from the model's command docs and rejected at execution. Two requests for the same unavailable command, or three unavailable requests in total, pause automatic commands and explain the limitation. Changing arguments or interleaving valid commands does not reset that budget; a new human instruction does.
 
-This update keeps code generation disabled when the existing setting disables it. It does not enable `allow_insecure_coding` or add a shelter-building command.
+The managed commands work with `allow_insecure_coding: false`. They do not require `!newAction` or enable generated code execution.
 
-## Validation
+## Validation and provenance
 
-Run the committed regression suite with:
+Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 42 passing tests covering planning, delayed pickup, combat handoffs, cancellation, death, station ownership/recovery, navigation protections, safe mining, capability filtering, and the actual `Agent.handleMessage` retry loop with model transport mocked.
 
-```powershell
-npm run test:goals
-```
+Additional local integration runs used a disposable official Java 26.3 server, the native packages, real collection/crafting/navigation skills, safety modes, and PvP plugin. They exercised wooden/stone tools, exact furnace ingredients, real zombie combat interruption/resume, station reuse outside the normal 16-block search, retrieval before a 40-block trip, foreign-table preservation, station relocation, and uneven terrain. The final mining run recorded no cobblestone scaffolding placements or stone support-block digs.
 
-The tests cover delayed pickup, a false collection result followed by pickup, recipe resource reservations, completed-craft preservation across combat, inventory changes while paused, exclusive action handoffs, cancellation, death, shared PvP cleanup, capability filtering, and the actual `Agent.handleMessage` retry loop with model transport mocked.
+Starting equipment and combat effects were supplied to isolate the execution and recovery behaviors. No external model/API was needed for those controlled runs. Full autonomous survival and all server/mod/plugin combinations remain unverified.
 
-The live integration check used a disposable local offline-mode official Java 26.3 server, the real `initBot`, native packages, collection/crafting skills, modes and PvP plugin. Mia gathered logs, made a table, was preempted by real zombie combat, resumed the same wooden-axe target, made sticks and produced a verified wooden axe without crafting another table. The controlled test supplied combat effects to keep the bot alive while exercising preemption. No external model/API was needed for that integration check.
+The runtime remains experimental: new 26.3 recipes and some protocol/item-component codecs are incomplete. Browser and screenshot vision are disabled on protocol 777 in this build; Minecraft spectator view provides the smooth in-game perspective.
 
-The runtime remains experimental: new 26.3 recipes and some protocol/item-component codecs are incomplete upstream. Browser and screenshot vision are unavailable on protocol 777 in this build; use Minecraft spectator view. These checks do not establish full autonomous survival or every server/mod/plugin combination.
+Pinned upstream revisions and checksums are recorded in [the runtime manifest](../vendor/mia-26.3/manifest.json). Archives retain upstream sources/licenses, and [the data notice](../vendor/mia-26.3/DATA-NOTICE.md) credits the data sources.
 
-Pinned upstream revisions and checksums are recorded in `vendor/mia-26.3/manifest.json`. The npm archives retain their upstream sources/licenses, and the data notice is beside the data overlay.
+## Planned memory work
+
+Existing memory uses JSON history/summaries and saved places. The proposed SQLite upgrade will add retrieval of verified outcomes, world-specific locations, and repeated-failure cooldowns. It is a future feature, alongside safe staircase mining, verified smelting/iron progression, and a managed shelter workflow.
