@@ -28,7 +28,7 @@ export class CraftingStation {
     remember(block) {
         if (block?.name !== 'crafting_table') throw new Error('Cannot remember an unverified crafting table.');
         const { x, y, z } = block.position;
-        this.record = { position: { x, y, z }, dimension: dimension(this.bot), pickupMinimum: null };
+        this.record = { position: { x, y, z }, dimension: dimension(this.bot), pickupMinimum: null, pendingPlacement: false };
         this.bot.localMemory?.saveStation(this.record);
         this.api.log?.(`Leaving my crafting table at ${x}, ${y}, ${z}; reusing it nearby and packing it before travel beyond ${this.travelDistance} blocks.`);
     }
@@ -51,23 +51,48 @@ export class CraftingStation {
             this.forget();
             return false;
         }
+        if (block?.name === 'crafting_table' && record.pendingPlacement) {
+            record.pendingPlacement = false;
+            this.bot.localMemory?.saveStation(record);
+        }
         return true;
     }
 
+    async place() {
+        if (this.busy || this.unsafe()) return null;
+        if (this.available()) return this.forCraft();
+        this.busy = true;
+        let pending;
+        try {
+            const block = await this.api.place(position => {
+                pending = this.record = { position: { x: position.x, y: position.y, z: position.z },
+                    dimension: dimension(this.bot), pickupMinimum: null, pendingPlacement: true };
+                this.bot.localMemory?.saveStation(pending);
+            });
+            if (block?.name !== 'crafting_table' || this.record !== pending || pending.dimension !== dimension(this.bot)) return null;
+            this.remember(block);
+            return block;
+        } finally { this.busy = false; }
+    }
+
     async approach(record) {
-        if (distance(this.bot.entity.position, record.position) > 3) {
+        const pickup = record.pickupMinimum !== null;
+        const usable = () => pickup || !this.api.canUse ? distance(this.bot.entity.position, record.position) <= 3 :
+            this.api.canUse(record.position);
+        if (!usable()) {
             this.api.log?.('Returning to my crafting table.');
-            if (!await this.api.move(record.position) && !this.bot.interrupt_code)
+            if (!await this.api.move(record.position, { pickup }) && !this.bot.interrupt_code)
                 throw new Error('Could not reach my crafting table; travel stopped so it is not abandoned.');
         }
         if (this.bot.interrupt_code || this.record !== record) return null;
+        if (!usable()) throw new Error('Crafting table approach did not reach a verified work position; station and goal retained.');
         const block = this.api.blockAt(record.position);
         if (!block) throw new Error('Crafting table chunk did not load; try again from a reachable location.');
         return block;
     }
 
     async forCraft() {
-        if (!this.available() || this.unsafe()) return null;
+        if (this.busy || !this.available() || this.unsafe()) return null;
         if (this.record.pickupMinimum !== null) {
             await this.pack();
             return null;

@@ -8,8 +8,9 @@ import { protectCraftingMaterials } from '../navigation_policy.js';
 import { findSafeStoneTargets, collectStoneFromSide, findSafeLogTargets, collectLogFromSide, findSafeIronTargets, collectIronFromSide } from '../safe_stone.js';
 import { ManagedFurnace, openManagedFurnace } from '../managed_smelting.js';
 import { ironPickaxes } from '../smelting_plan.js';
-import { walkSafely, safeWaypoints, safeSolid } from '../navigation_recovery.js';
+import { walkSafely, safeWaypoints } from '../navigation_recovery.js';
 import { collectWithRecovery } from '../resource_recovery.js';
+import { approachStation, canUseStation, placeSupportedStation } from '../station_access.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -47,7 +48,10 @@ async function equipHighestAttack(bot) {
 function craftingStation(bot) {
     if (!bot.craftingStation) bot.craftingStation = new CraftingStation(bot, {
         blockAt: position => bot.blockAt(new Vec3(position.x, position.y, position.z)),
-        move: position => goToPosition(bot, position.x, position.y, position.z, 2),
+        move: (position, { pickup = false } = {}) => pickup ? managedTravel(bot, position) :
+            approachStation(bot, position, stationTravel(bot)),
+        canUse: position => canUseStation(bot, position),
+        place: onIntent => placeSupportedStation(bot, 'crafting_table', stationTravel(bot), onIntent),
         break: async position => {
             if (!await breakBlockAt(bot, position.x, position.y, position.z) && !bot.interrupt_code)
                 throw new Error('Could not break my crafting table; it remains remembered.');
@@ -55,8 +59,8 @@ function craftingStation(bot) {
         pickup: async position => {
             // Occupy the cleared cell: stopping one block away can leave the
             // dropped table just outside the player's pickup bounding box.
-            await goToPosition(bot, position.x + 0.5, position.y, position.z + 0.5, 0);
-            if (!bot.interrupt_code) await pickupNearbyItems(bot, { itemName: 'crafting_table' });
+            if (!await managedTravel(bot, new Vec3(position.x + 0.5, position.y, position.z + 0.5)) && !bot.interrupt_code)
+                throw new Error('Could not reach the dropped crafting table; pickup remains pending.');
         },
         canCarry: () => bot.inventory.emptySlotCount() > 0 ||
             bot.inventory.items().some(item => item.name === 'crafting_table' && item.count < 64),
@@ -72,15 +76,17 @@ function managedTravel(bot, position, range = 0) {
         prepareTravel: p => bot.craftingStation?.beforeTravel(p), log: message => log(bot, message) });
 }
 
+function stationTravel(bot) {
+    return { movements: () => navigationMovements(bot),
+        prepareTravel: position => bot.craftingStation?.beforeTravel(position),
+        log: message => log(bot, message) };
+}
+
 export function getManagedFurnace(bot) {
     if (!bot.managedFurnace) bot.managedFurnace = new ManagedFurnace(bot, {
         blockAt: p => bot.blockAt(new Vec3(p.x, p.y, p.z)),
-        move: p => managedTravel(bot, p, 2),
-        freeSpace: () => {
-            const p = world.getNearestFreeSpace(bot, 1, 6);
-            return p && safeSolid(bot.blockAt(p.offset(0, -1, 0))) ? p : null;
-        },
-        place: p => placeBlock(bot, 'furnace', p.x, p.y, p.z),
+        move: p => approachStation(bot, p, stationTravel(bot)),
+        place: onIntent => placeSupportedStation(bot, 'furnace', stationTravel(bot), onIntent),
         open: block => openManagedFurnace(bot, block),
         log: message => log(bot, message)
     });
@@ -160,23 +166,9 @@ export async function craftRecipe(bot, itemName, num=1) {
             // Try to place crafting table
             let hasTable = world.getInventoryCounts(bot)['crafting_table'] > 0;
             if (hasTable) {
-                let pos = world.getNearestFreeSpace(bot, 1, 6);
-                if (!pos) { log(bot, 'No safe space for the crafting table.'); return false; }
-                await placeBlock(bot, 'crafting_table', pos.x, pos.y, pos.z);
-                const deadline = Date.now() + 1500;
-                do {
-                    craftingTable = bot.blockAt(pos);
-                    if (craftingTable?.name === 'crafting_table') break;
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                } while (!bot.interrupt_code && Date.now() < deadline);
-                if (craftingTable?.name === 'crafting_table') {
-                    station.remember(craftingTable);
-                    if (bot.interrupt_code) return false;
-                    recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
-                } else {
-                    log(bot, 'Could not verify crafting table placement.');
-                    return false;
-                }
+                craftingTable = await station.place();
+                if (!craftingTable || bot.interrupt_code) return false;
+                recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
             }
             else {
                 log(bot, `Crafting ${itemName} requires a crafting table.`)
@@ -192,10 +184,7 @@ export async function craftRecipe(bot, itemName, num=1) {
         return false;
     }
     
-    if (craftingTable && bot.entity.position.distanceTo(craftingTable.position) > 4) {
-        const pos = craftingTable.position;
-        if (!await goToPosition(bot, pos.x, pos.y, pos.z, 3)) return false;
-    }
+    if (craftingTable && !await approachStation(bot, craftingTable.position, stationTravel(bot))) return false;
     if (bot.interrupt_code) return false;
 
     const recipe = recipes[0];

@@ -91,7 +91,7 @@ export class AgentMemory {
     saveStation(record) {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
         this.safe(() => this.store.putLocation(this.world, record.dimension, 'owned:crafting_table', 'station', record.position,
-            { owned: true, pickupMinimum: record.pickupMinimum }));
+            { owned: true, pickupMinimum: record.pickupMinimum, pendingPlacement: Boolean(record.pendingPlacement) }));
     }
     station() {
         return this.safe(() => {
@@ -99,7 +99,8 @@ export class AgentMemory {
             if (!row?.metadata.owned || !validPosition(row.position)) return null;
             const minimum = row.metadata.pickupMinimum;
             if (minimum !== null && (!Number.isSafeInteger(minimum) || minimum < 1)) return null;
-            return { position: row.position, dimension: row.dimension, pickupMinimum: minimum };
+            return { position: row.position, dimension: row.dimension, pickupMinimum: minimum,
+                pendingPlacement: Boolean(row.metadata.pendingPlacement) };
         });
     }
     forgetStation(record) {

@@ -1,5 +1,6 @@
 import pf from 'mineflayer-pathfinder';
 import * as mc from '../../utils/mcdata.js';
+import { safeEmpty, safeSolid } from '../navigation_recovery.js';
 
 
 export function getNearestFreeSpace(bot, size=1, distance=8) {
@@ -14,7 +15,7 @@ export function getNearestFreeSpace(bot, size=1, distance=8) {
      **/
     let empty_pos = bot.findBlocks({
         matching: (block) => {
-            return block && block.name == 'air';
+            return block && ['air', 'cave_air', 'void_air'].includes(block.name);
         },
         maxDistance: distance,
         count: 1000
@@ -25,7 +26,7 @@ export function getNearestFreeSpace(bot, size=1, distance=8) {
             for (let z = 0; z < size; z++) {
                 let top = bot.blockAt(empty_pos[i].offset(x, 0, z));
                 let bottom = bot.blockAt(empty_pos[i].offset(x, -1, z));
-                if (!top || !top.name == 'air' || !bottom || bottom.drops.length == 0 || !bottom.diggable) {
+                if (!safeEmpty(top) || !safeSolid(bottom)) {
                     empty = false;
                     break;
                 }

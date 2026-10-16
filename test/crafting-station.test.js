@@ -132,3 +132,34 @@ test('unowned tables are never packed, and death or dimension changes clear owne
     assert.equal(f.station.available(), false);
     assert.equal(f.calls.length, 0);
 });
+
+test('a nearby table without a usable face triggers an approach and retains ownership on failure', async () => {
+    const f = fixture(); f.api.canUse = () => false; f.api.move = async () => false;
+    await assert.rejects(f.station.forCraft(), /Could not reach my crafting table/);
+    assert(f.station.available()); assert.equal(f.station.busy, false);
+});
+
+test('an API reporting arrival cannot bypass the final usable-position check', async () => {
+    const f = fixture(); f.api.canUse = () => false;
+    await assert.rejects(f.station.forCraft(), /verified work position/);
+    assert(f.station.available()); assert.equal(f.calls.length, 1);
+});
+
+test('table placement persists intent before placement and remembers only a verified table', async () => {
+    const f = fixture(); f.station.forget();
+    let saved;
+    f.bot.localMemory = { station: () => null, saveStation: record => { saved = { ...record }; } };
+    f.api.place = async before => {
+        before(f.position); assert.equal(saved.pendingPlacement, true);
+        return { name: 'crafting_table', position: f.position };
+    };
+    assert.equal((await f.station.place()).name, 'crafting_table');
+    assert.equal(saved.pendingPlacement, false); assert.equal(f.station.busy, false);
+});
+
+test('death during placement cannot install a stale owned table record', async () => {
+    const f = fixture(); f.station.forget();
+    f.api.place = async before => { before(f.position); f.bot.emit('death'); return { name: 'crafting_table', position: f.position }; };
+    assert.equal(await f.station.place(), null);
+    assert.equal(f.station.record, null); assert.equal(f.station.busy, false);
+});

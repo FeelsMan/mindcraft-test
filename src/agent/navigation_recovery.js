@@ -83,12 +83,12 @@ async function boundedGoto(bot, goal, movements, { deadline, stallMs, pollMs, lo
 // One action owns navigation, its cancellation, and all route retries. No
 // Promise.race leaves a path running after the caller has changed actions.
 export async function walkSafely(bot, position, { movements, range = 0, prepareTravel,
-    timeoutMs = 12000, stallMs = 2500, pollMs = 100, searchMs = 180, log } = {}) {
+    timeoutMs = 12000, stallMs = 2500, pollMs = 100, searchMs = 180, goal: suppliedGoal, log } = {}) {
     if (bot.interrupt_code) return false;
     await prepareTravel?.(position);
     if (bot.interrupt_code) return false;
-    const goal = range > 0 ? new pf.goals.GoalNear(position.x, position.y, position.z, range) :
-        new pf.goals.GoalBlock(Math.floor(position.x), Math.floor(position.y), Math.floor(position.z));
+    const goal = suppliedGoal || (range > 0 ? new pf.goals.GoalNear(position.x, position.y, position.z, range) :
+        new pf.goals.GoalBlock(Math.floor(position.x), Math.floor(position.y), Math.floor(position.z)));
     if (reached(bot, goal)) return true;
     const token = { active: true };
     const previous = bot.navigationRecovery;

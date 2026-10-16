@@ -70,13 +70,14 @@ export class ManagedFurnace {
         if (!this.available()) {
             if (!place) return null;
             if (countInventoryItem(bot, 'furnace') < 1) throw new Error('A furnace is required in inventory or at a remembered owned station.');
-            const p = this.api.freeSpace();
-            if (!p) throw new Error('No supported free space for the furnace.');
-            this.record = { position: positionOf(p), dimension: dimension(bot), pendingPlacement: true };
-            const pending = this.record;
-            this.save(); // Recover placement across interruption/crash, then recheck the actual block.
-            await this.api.place(p);
-            if (bot.interrupt_code || this.record !== pending) return null;
+            let pending;
+            await this.api.place(p => {
+                pending = this.record = { position: positionOf(p), dimension: dimension(bot), pendingPlacement: true };
+                this.save(); // Recover placement across interruption/crash, then recheck the actual block.
+            });
+            if (bot.interrupt_code) return null;
+            if (!pending) throw new Error('No reachable supported space for the furnace.');
+            if (this.record !== pending || pending.dimension !== dimension(bot)) return null;
             const deadline = Date.now() + this.verifyMs;
             while (!bot.interrupt_code && Date.now() < deadline) {
                 if (this.api.blockAt(this.record.position)?.name === 'furnace') break;

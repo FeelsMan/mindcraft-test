@@ -22,6 +22,12 @@ Combat, escape, and unstuck actions take priority over retrieval. Interrupted cr
 
 With [local memory configured](mia-memory.md), historical station ownership is retained per world/dimension across restart and death. Loaded blocks are revalidated before use; nearby player tables are not adopted. Resource collection searches the nearby loaded world; unavailable logs or stone produce a bounded failure report rather than an endless search. Verified resource areas are saved as historical planning hints.
 
+The [station-access repair](mia-station-access.md) requires solid support for
+placement and uses visible, supported work positions when returning. It persists
+table placement intent before the packet and checks the actual block afterward.
+Managed furnaces share the placement/access routine. See that page for current
+installation, terrain checks and the table return/retrieval test.
+
 Managed crafting now gathers wooden prerequisites before stone and reserves crafting ingredients against routine pathfinder scaffolding, including the collection plugin's separate movement settings. Dirt may still be used for ordinary navigation. Combat and urgent escape can use reserved blocks when necessary, after which the goal replans from the remaining inventory.
 
 Cobblestone collection for a make goal selects exposed stone with a supported side position and an existing walking route. The approach cannot dig, bridge, pillar, or drop more than one block. It will not mine the block under Mia's feet or dig a vertical shaft. If no safe stone is reachable, move her near an exposed stone wall or an accessible cave; autonomous staircase mining is not implemented by this repair.

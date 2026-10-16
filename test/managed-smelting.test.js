@@ -126,7 +126,7 @@ function fixture(t, initial = { raw_iron: 3, oak_planks: 2 }) {
     t.after(() => clearInterval(timer));
     const api = {
         blockAt: p => ({ name: 'furnace', position: new Vec3(p.x, p.y, p.z) }),
-        move: async () => true, freeSpace: () => new Vec3(1, 64, 0), place: async () => { state.placed++; stock.furnace--; },
+        move: async () => true, place: async before => { before(new Vec3(1, 64, 0)); state.placed++; stock.furnace--; },
         log: () => {},
         open: async () => {
             visible = { ...stock }; state.opens++;
@@ -232,9 +232,24 @@ test('only remembered or newly placed furnaces are used; arbitrary nearby furnac
 test('placement intent survives an interrupted placement and is verified against the loaded furnace', async t => {
     const f = fixture(t, { furnace: 1 }); const saved = [];
     f.bot.localMemory = { furnace: () => null, saveFurnace: r => saved.push(structuredClone(r)) };
-    f.manager.record = null; f.api.place = async () => { f.bot.interrupt_code = true; };
+    f.manager.record = null; f.api.place = async before => { before(new Vec3(1, 64, 0)); f.bot.interrupt_code = true; };
     assert.equal(await f.manager.obtain(), null); assert.equal(saved[0].pendingPlacement, true);
     f.bot.interrupt_code = false; assert(f.manager.available()); assert.equal(f.manager.record.pendingPlacement, false);
+});
+
+test('no eligible furnace placement reports the missing supported site without claiming ownership', async t => {
+    const f = fixture(t, { furnace: 1 }); f.manager.record = null; f.api.place = async () => null;
+    await assert.rejects(f.manager.obtain(), /No reachable supported space/);
+    assert.equal(f.manager.record, null); assert.equal(f.state.opens, 0); assert.equal(f.stock.furnace, 1);
+});
+
+test('a dimension change while placing a furnace cannot use a same-coordinate block in the new world', async t => {
+    const f = fixture(t, { furnace: 1 }); f.manager.record = null;
+    f.api.place = async before => { before(new Vec3(1, 64, 0)); f.bot.game.dimension = 'the_nether'; };
+    f.api.move = async () => assert.fail('Do not approach an old-dimension station');
+    assert.equal(await f.manager.obtain(), null);
+    assert.equal(f.state.opens, 0); assert.equal(f.manager.record.pendingPlacement, true);
+    assert.equal(f.manager.record.dimension, 'overworld');
 });
 
 test('managed smelting yields to combat, resumes the same target and verifies its final inventory', async t => {

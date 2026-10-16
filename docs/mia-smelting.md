@@ -54,6 +54,9 @@ Inputs and fuel already transferred remain in the furnace. On resume, the bot
 inspects its contents instead of treating transferred ore as missing inventory.
 SQLite uses the existing schema and world ID; no reset or migration is needed.
 
+The current [station-access repair](mia-station-access.md) gives managed furnaces
+the same supported placement and visible work-position checks as crafting tables.
+
 An arbitrary nearby furnace is not adopted or emptied. Only a remembered owned
 furnace or a furnace newly placed by this managed routine is used. If it contains
 input/output for another recipe, the goal blocks without clearing those items.
@@ -133,7 +136,7 @@ safely. Memory and these deterministic skills do not retrain the language model.
 
 ## Validation
 
-The suite has **142 passing tests**, including fuel/input reservation, initial
+The suite has **163 passing tests**, including supported station placement/access, fuel/input reservation, initial
 progress-packet capture, output inventory verification, window/listener cleanup,
 smelting preemption, persistent ownership and cooldown invalidation by live
 furnace contents.

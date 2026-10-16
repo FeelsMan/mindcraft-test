@@ -207,6 +207,19 @@ test('owned furnace and placement intent persist, stay scoped, and recheck loade
     block = { name: 'air' }; assert.equal(furnace.available(), false); assert.equal(next.memory.furnace(), null);
 });
 
+test('table placement intent survives restart and is confirmed only against a live owned block', t => {
+    const f = fixture(t), position = { x: 7, y: 64, z: 4 };
+    f.memory.saveStation({ position, dimension: 'overworld', pickupMinimum: null, pendingPlacement: true });
+    f.memory.close();
+    const next = fixture(t, f.root); let block = null;
+    const station = new CraftingStation(next.bot, { blockAt: () => block });
+    assert(station.available()); assert.equal(station.record.pendingPlacement, true);
+    block = { name: 'crafting_table', position };
+    assert(station.available()); assert.equal(next.memory.station().pendingPlacement, false);
+    block = { name: 'air', position };
+    assert.equal(station.available(), false); assert.equal(next.memory.station(), null);
+});
+
 test('a verified smelt is retrievable evidence, while failed output is not recorded', t => {
     const f = fixture(t), goal = { kind: 'make', item: 'iron_ingot', target: 3 }, step = { type: 'smelt', item: 'iron_ingot' };
     f.memory.beginGoal(goal); f.memory.beginStep(goal, step);
