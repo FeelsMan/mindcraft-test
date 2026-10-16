@@ -1,4 +1,5 @@
-import { gatherCommandAllowed } from '../gather_goal.js';
+import { gatherCommandAllowed, countItem } from '../gather_goal.js';
+import { smeltingRecipes } from '../smelting_plan.js';
 import { getBlockId, getItemId } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
@@ -241,6 +242,22 @@ export async function executeCommand(agent, message) {
         if (numArgs !== numParams(command))
             return `Command ${command.name} was given ${numArgs} args, but requires ${numParams(command)} args.`;
         else {
+            // Old examples still select smeltItem. Route supported inputs before
+            // taking an action slot: starting a goal inside runAsAction would
+            // wait for that same action to stop. Preserve its ADDITIONAL count.
+            if (parsed.commandName === '!smeltItem') {
+                const output = Object.keys(smeltingRecipes).find(item => smeltingRecipes[item] === parsed.args[0]);
+                if (output) {
+                    const unavailable = commandUnavailableReason(agent, '!makeGoal');
+                    if (unavailable) return unavailable;
+                    const count = parsed.args[1];
+                    const target = countItem(agent.bot, output) + count;
+                    if (!Number.isSafeInteger(count) || count < 1 || !Number.isSafeInteger(target) || target > 64)
+                        return 'Managed smelting supports at most 64 total output items. Use !makeGoal with a total target from 1 to 64.';
+                    console.log(`Managed smelting: ${count} additional ${output}; inventory target ${target}.`);
+                    return commandMap['!makeGoal'].perform(agent, output, target);
+                }
+            }
             const result = await command.perform(agent, ...parsed.args);
             return result;
         }

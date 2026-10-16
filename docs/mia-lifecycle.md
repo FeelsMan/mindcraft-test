@@ -58,9 +58,25 @@ It supports `--check`, `--verify`, `--test`, and `--restore`.
    should resume without accumulating completion/error listeners.
 5. Send `!endGoal`, restart, and confirm the target stays cancelled.
 
-The regression suite has 86 passing tests, including actual collectblock
+At the initial lifecycle revision, the regression suite had 86 passing tests, including actual collectblock
 cancellation with 400 interrupt requests, slow ActionManager handoffs, watchdog
 cleanup, socket ownership, parent restart races/escalation, and real Node child
 process exits/restarts. Existing memory tests cover checkpoints, cancellation,
 scope isolation, and cooldowns. Earlier controlled Java 26.3 checks covered
 three-process memory recovery, exact remaining materials, and owned table reuse.
+
+## Restart during initialization
+
+The smelting follow-up also handles a dashboard restart before the Minecraft
+bot exists. Shutdown coalesces repeated calls, stops new responses/startup work,
+and skips chat until the client is in play state. History is saved only after
+the initial history-loading stage has completed; an early restart therefore
+preserves the existing file. Initialized history updates and saves are awaited
+before closing SQLite and exiting. A report, save, chat or close failure is
+reported without preventing exit.
+
+This change is included in the current GitHub branch and in
+`mia-smelting-command-fix.cjs`, which requires the smelting update first. See
+[installation and tests](mia-smelting.md#command-routing-and-startup-restart-follow-up).
+The current combined suite has 142 passing tests, including the early-restart
+and cleanup-failure regressions.

@@ -324,10 +324,10 @@ export const actionsList = [
     },
     {
         name: '!smeltItem',
-        description: 'Legacy one-shot smelting of an input item. For verified iron_ingot or charcoal inventory targets with interruption/restart recovery, use !makeGoal instead.',
+        description: 'Smelt an additional quantity of an input item. raw_iron and oak_log automatically use the verified managed iron/charcoal planner, retaining the output and furnace with interruption/restart recovery. This can gather missing prerequisites. Other inputs use legacy one-shot behavior. Prefer !makeGoal for a total inventory target.',
         params: {
             'item_name': { type: 'ItemName', description: 'The name of the input item to smelt.' },
-            'num': { type: 'int', description: 'The number of times to smelt the item.', domain: [1, Number.MAX_SAFE_INTEGER] }
+            'num': { type: 'int', description: 'Additional output quantity. Managed iron/charcoal requests must leave at most 64 total output items.', domain: [1, Number.MAX_SAFE_INTEGER] }
         },
         perform: runAsAction(async (agent, item_name, num) => {
             let success = await skills.smeltItem(agent.bot, item_name, num);

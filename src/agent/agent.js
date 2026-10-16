@@ -24,6 +24,7 @@ import { log, validateNameFormat, handleDisconnection } from './connection_handl
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
+        if (this._shuttingDown) return;
         this.last_sender = null;
         this.count_id = count_id;
         this._disconnectHandled = false;
@@ -50,6 +51,7 @@ export class Agent {
         this.self_prompter = new SelfPrompter(this);
         convoManager.initAgent(this);
         await this.prompter.initExamples();
+        if (this._shuttingDown) return;
 
         // load mem first before doing task
         let save_data = null;
@@ -121,6 +123,7 @@ export class Agent {
 
                 // wait for a bit so stats are not undefined
                 await new Promise((resolve) => setTimeout(resolve, 1000));
+                if (this._shuttingDown) return;
                 
                 console.log(`${this.name} spawned.`);
                 this.clearBotLogs();
@@ -269,7 +272,7 @@ export class Agent {
     }
 
     async handleMessage(source, message, max_responses=null) {
-        if (this.recovering_from_death) return false;
+        if (this._shuttingDown || this.recovering_from_death) return false;
         const messageDeathEpoch = this.death_epoch || 0;
         const messageGatherEpoch = this.gather_epoch || 0;
         const messageCommandFailureEpoch = this.command_failure_epoch || 0;
@@ -321,7 +324,7 @@ export class Agent {
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
-        const checkInterrupt = () => messageCommandFailureEpoch !== (this.command_failure_epoch || 0) || messageGatherEpoch !== (this.gather_epoch || 0) || messageDeathEpoch !== (this.death_epoch || 0) || this.recovering_from_death || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
+        const checkInterrupt = () => this._shuttingDown || messageCommandFailureEpoch !== (this.command_failure_epoch || 0) || messageGatherEpoch !== (this.gather_epoch || 0) || messageDeathEpoch !== (this.death_epoch || 0) || this.recovering_from_death || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
         let behavior_log = this.bot.modes.flushBehaviorLog().trim();
         if (behavior_log.length > 0) {
@@ -535,24 +538,40 @@ export class Agent {
     }
 
     async update(delta) {
-        if (this.recovering_from_death) return;
+        if (this._shuttingDown || this.recovering_from_death) return;
         await this.bot.modes.update();
         this.self_prompter.update(delta);
         await this.checkTaskDone();
     }
 
     isIdle() {
-        return !this.recovering_from_death && !this.actions.executing;
+        return !this._shuttingDown && !this.recovering_from_death && !this.actions.executing;
     }
     
 
-    cleanKill(msg='Killing agent process...', code=1) {
+    async cleanKill(msg='Killing agent process...', code=1) {
+        if (this._shuttingDown) return;
+        this._shuttingDown = true;
+        this._disconnectHandled = true;
         console.warn(`[Mia lifecycle] ${msg}`);
-        this.history.add('system', msg);
-        this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
-        this.history.save();
-        this.local_memory?.close();
-        process.exit(code);
+        try {
+            // Task is created only after history has been loaded. An early
+            // restart must not replace existing memory with an empty history.
+            if (this.history && this.task) {
+                try { await this.history.add('system', msg); }
+                catch (error) { console.warn('[Mia lifecycle] Could not add shutdown report:', error.message); }
+                try { await this.history.save(); }
+                catch (error) { console.warn('[Mia lifecycle] Could not save shutdown history:', error.message); }
+            }
+            if (this.bot?.entity && this.bot?._client?.state === 'play') {
+                try { this.bot.chat(code > 1 ? 'Restarting.' : 'Exiting.'); }
+                catch (error) { console.warn('[Mia lifecycle] Could not send shutdown chat:', error.message); }
+            }
+        } finally {
+            try { this.local_memory?.close(); }
+            catch (error) { console.warn('[Mia lifecycle] Could not close local memory:', error.message); }
+            process.exit(code);
+        }
     }
     async checkTaskDone() {
         if (this.task.data) {

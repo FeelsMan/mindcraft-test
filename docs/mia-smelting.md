@@ -9,6 +9,14 @@ inventory quantities**, including items Mia already holds.
 !makeGoal("charcoal", 2)
 ```
 
+Older model examples can still choose `!smeltItem`. Requests with `raw_iron` or
+`oak_log` now route into the same managed planner before acquiring an action
+slot. They keep their **additional output quantity**: with two ingots held,
+`!smeltItem("raw_iron", 3)` starts a five-ingot total target. The resulting total
+must be 1–64; oversized requests are rejected before starting work. Existing
+active-goal and disabled-command guards still apply. Other inputs retain the
+original one-shot smelting behavior.
+
 ## Planning and execution
 
 - An iron goal obtains a stone pickaxe (or reuses copper/better) before mining exposed iron or
@@ -76,6 +84,24 @@ settings, model profiles, keys, dependencies and all memories/configuration.
 No npm reinstall is required. It supports `--check`, `--verify`, `--test` and
 `--restore`. The current GitHub branch contains the same source changes.
 
+### Command-routing and startup-restart follow-up
+
+For installations that already applied `mia-smelting-update.cjs`, stop Mindcraft
+and apply the follow-up:
+
+```powershell
+node .\mia-smelting-command-fix.cjs --apply
+node main.js --profiles .\andy.json
+```
+
+This makes supported `!smeltItem` requests use managed verification/recovery
+instead of the old furnace pickup and forced inventory-refresh restart. It also
+fixes dashboard Restart during initialization: unloaded history is preserved,
+chat is sent only while connected, and shutdown waits for initialized history
+before closing memory and exiting. See [lifecycle](mia-lifecycle.md).
+The installer has the same check, backup, verify, test and restore options; it
+preserves configuration, profiles, dependencies and saved memory.
+
 ## Tests to run in Minecraft
 
 1. For the first test, give Mia **one furnace, three raw iron and one coal**,
@@ -88,6 +114,12 @@ No npm reinstall is required. It supports `--check`, `--verify`, `--test` and
    target, and finish without gathering replacement ore or making a new furnace.
 4. After these pass, try an empty-inventory iron goal near reachable trees,
    exposed stone and exposed iron ore to exercise the complete prerequisite plan.
+5. Note the current ingot count, provide two raw iron and fuel, then send
+   `!smeltItem("raw_iron", 2)`. Expect two additional ingots, the furnace left
+   placed, and no inventory-refresh restart. Repeat for oak-log charcoal if desired.
+6. Click dashboard Restart once while initialization is still in progress.
+   The replacement should start without an undefined `chat` error, and existing
+   memory should remain available.
 
 ## Current limits
 
@@ -101,10 +133,18 @@ safely. Memory and these deterministic skills do not retrain the language model.
 
 ## Validation
 
-The suite has **132 passing tests**, including fuel/input reservation, initial
+The suite has **142 passing tests**, including fuel/input reservation, initial
 progress-packet capture, output inventory verification, window/listener cleanup,
 smelting preemption, persistent ownership and cooldown invalidation by live
 furnace contents.
+
+The follow-up tests exercise the real command parser, managed planner and action
+manager with game I/O replaced. They verify additional-count conversion, active
+goal/disabled-command guards, no nested action ownership, the 64-output bound,
+and fallback for other recipes. Actual Agent shutdown tests cover pre-login
+restart, preservation of unloaded history, awaited saves, duplicate requests,
+and cleanup failures. These are regression tests, separate from the native
+Minecraft checks below.
 
 A controlled official Java 26.3 run began with empty inventory and nearby
 reachable trees, exposed stone and exposed iron ore. It made the wooden and

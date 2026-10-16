@@ -19,7 +19,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Crafting material protection | Routine navigation preserves recipe ingredients instead of spending crafting cobblestone on scaffolding. Wooden prerequisites are obtained before stone. Urgent safety actions can still use blocks when needed. |
 | Safer stone collection | Managed cobblestone collection uses reachable, supported side positions. Its approach cannot dig a shaft, build a pillar, or bridge a gap. |
 | Resource finding and route recovery | Managed goals recheck remembered resource areas and explore supported waypoints when local collection stalls. Searches and route retries are bounded, checkpointed, and verified against live blocks/inventory. See [resource recovery](docs/mia-resource-recovery.md). |
-| Verified iron/charcoal smelting | `!makeGoal` calculates ore/tools/fuel, reuses an owned furnace and its live queued contents, verifies output in inventory, and resumes after interruptions. See [smelting](docs/mia-smelting.md). |
+| Verified iron/charcoal smelting | `!makeGoal` calculates ore/tools/fuel, reuses an owned furnace and its live queued contents, verifies output in inventory, and resumes after interruptions. Older `!smeltItem` requests for raw iron or oak logs also use this planner. See [smelting](docs/mia-smelting.md). |
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
 | Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
@@ -142,6 +142,12 @@ Send these through Minecraft chat or the dashboard **one at a time**, allowing e
 
 Counts mean **the total to keep in inventory**, from 1 to 64. If Mia already has three oak logs, `!gatherGoal("oak_log", 4)` needs one more. A make goal calculates prerequisites from installed recipe data and current inventory, then verifies each result.
 
+Older examples may select `!smeltItem("raw_iron", 3)` or `!smeltItem("oak_log", 2)`.
+These now start the same managed iron/charcoal planner, preserving the old command's
+**additional quantity**: two held ingots plus a request to smelt three means five
+total ingots. The resulting total must be at most 64. Other smelting inputs still
+use the original one-shot skill.
+
 | Command | Supported targets |
 | --- | --- |
 | `!gatherGoal(item, count)` | Log blocks, such as `oak_log` and `spruce_log`. |
@@ -187,7 +193,7 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The **132 passing regression tests** cover crafting/navigation/memory, verified smelting and furnace-window cleanup, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [smelting](docs/mia-smelting.md), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
+The **142 passing regression tests** cover crafting/navigation/memory, verified smelting and furnace-window cleanup, routing older smelting commands into managed goals, early-startup shutdown, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [smelting](docs/mia-smelting.md), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
 
