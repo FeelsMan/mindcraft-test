@@ -33,7 +33,7 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
 export const actionsList = [
     {
         name: '!makeGoal',
-        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup/crafting. Supports oak planks, sticks, crafting tables, cobblestone, wooden/stone tools and furnaces. Reuses tools and the owned table. Searches other reachable resource areas with bounded retries. Pauses for combat. Configured local memory saves the target across death/restart; explicit stop cancels it. Unresolved failures block the goal.',
+        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup, crafting and smelting. Supports oak planks, sticks, tables, cobblestone, wooden/stone tools, furnaces, raw_iron, iron_ingot and charcoal. Obtains required tools and fuel; reuses owned stations and live furnace contents. Searches reachable resource areas with bounded retries. Pauses for combat. Configured memory restores targets across death/restart; stop cancels them. Unresolved failures block the goal.',
         params: {
             item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
@@ -44,6 +44,10 @@ export const actionsList = [
             hasTable: bot => skills.getCraftingStation(bot).available() || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
             hasOwnedTable: bot => { skills.getCraftingStation(bot); return hasReusableTable(bot); },
             recoverTable: bot => bot.craftingStation.pack(),
+            hasFurnace: bot => skills.getManagedFurnace(bot).available(),
+            furnaceSnapshot: bot => skills.getManagedFurnace(bot).snapshot,
+            inspectFurnace: skills.inspectManagedFurnace,
+            smelt: skills.smeltManaged,
             collect: skills.collectBlock,
             pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
             craft: skills.craftRecipe
@@ -320,7 +324,7 @@ export const actionsList = [
     },
     {
         name: '!smeltItem',
-        description: 'Smelt the given item the given number of times.',
+        description: 'Legacy one-shot smelting of an input item. For verified iron_ingot or charcoal inventory targets with interruption/restart recovery, use !makeGoal instead.',
         params: {
             'item_name': { type: 'ItemName', description: 'The name of the input item to smelt.' },
             'num': { type: 'int', description: 'The number of times to smelt the item.', domain: [1, Number.MAX_SAFE_INTEGER] }

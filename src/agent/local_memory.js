@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const kinds = new Set(['gather', 'craft', 'recover', 'goal_complete', 'goal_failed', 'death']);
+const kinds = new Set(['gather', 'craft', 'smelt', 'recover', 'goal_complete', 'goal_failed', 'death']);
 const clean = (value, max = 400) => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, max);
 export const validPosition = p => p && [p.x, p.y, p.z].every(Number.isFinite) &&
     Math.abs(p.x) <= 30000000 && Math.abs(p.z) <= 30000000 && Math.abs(p.y) <= 4096;

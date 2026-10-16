@@ -91,6 +91,12 @@ renews it. A gathering cooldown skips the failing local area while allowing a
 bounded search elsewhere. These additions keep schema version 1 and preserve
 all existing records and world configuration.
 
+[Managed smelting](mia-smelting.md) also remembers an owned furnace and pending
+placement in the current world/dimension. Its contents are inspected live on
+resume, including ore and fuel already transferred before disconnect. Verified
+smelting results are recorded as outcomes; cached contents alone are not proof
+of completed output. The SQLite schema version remains 1.
+
 Tables remain remembered across restart/death. On dimension changes, each
 dimension retains its own table record. Nearby player tables are not adopted.
 A pending dropped-table pickup is discarded after death because its inventory

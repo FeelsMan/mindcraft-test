@@ -1,5 +1,5 @@
 const urgentModes = new Set(['self_preservation', 'cowardice', 'self_defense']);
-const ingredients = ['cobblestone', 'oak_log', 'oak_planks', 'stick', 'crafting_table', 'furnace'];
+const ingredients = ['cobblestone', 'oak_log', 'oak_planks', 'stick', 'crafting_table', 'furnace', 'raw_iron', 'iron_ingot', 'coal', 'charcoal'];
 
 // Pathfinder calls these "scafoldingBlocks" (one f). Protect recipe supplies
 // during routine movement, including unstuck. Actual combat/escape may spend

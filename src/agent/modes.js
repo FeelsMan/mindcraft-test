@@ -108,8 +108,8 @@ const modes_list = [
                 return; // don't get stuck when idle
             }
             const bot = agent.bot;
-            if (bot.navigationRecovery?.active) {
-                // Managed paths have their own short, awaited stall deadline.
+            if (bot.navigationRecovery?.active || bot.smeltingActivity?.active) {
+                // Managed paths and furnace waiting have their own deadlines.
                 // Let it settle/retry instead of starting another movement.
                 this.stuck_time = 0; this.prev_location = null; this.last_time = Date.now();
                 return;

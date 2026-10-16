@@ -110,6 +110,26 @@ export class AgentMemory {
         });
     }
 
+    saveFurnace(record) {
+        if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
+        this.safe(() => this.store.putLocation(this.world, this.dimension, 'owned:furnace', 'furnace', record.position,
+            { owned: true, pendingPlacement: Boolean(record.pendingPlacement) }));
+    }
+    furnace() {
+        return this.safe(() => {
+            const row = this.store.getLocation(this.world, this.dimension, 'owned:furnace');
+            return row?.metadata.owned && validPosition(row.position) ?
+                { position: row.position, dimension: row.dimension, pendingPlacement: Boolean(row.metadata.pendingPlacement) } : null;
+        });
+    }
+    forgetFurnace(record) {
+        this.safe(() => {
+            const existing = this.store.getLocation(this.world, record.dimension, 'owned:furnace');
+            if (existing && JSON.stringify(existing.position) === JSON.stringify(record.position))
+                this.store.deleteLocation(this.world, record.dimension, 'owned:furnace');
+        });
+    }
+
     resourceLocations(item) {
         const p = this.position;
         if (!p) return [];
@@ -161,7 +181,7 @@ export class AgentMemory {
             text: `Verified goal completed: at least ${goal.target} ${goal.item} in inventory at that time.` });
     }
 
-    fingerprint() {
+    fingerprint(step) {
         const inventory = (this.bot.inventory?.items() || []).map(i => [i.name, i.count]).sort();
         const p = this.position;
         const surroundings = [];
@@ -171,11 +191,18 @@ export class AgentMemory {
                 catch { surroundings.push('unloaded'); }
             }
         }
-        return createHash('sha256').update(JSON.stringify([cellOf(p), inventory, surroundings])).digest('hex');
+        const evidence = [cellOf(p), inventory, surroundings];
+        if (step?.type === 'smelt') {
+            const furnace = this.bot.managedFurnace;
+            const view = furnace?.snapshot;
+            evidence.push([furnace?.record?.position || null, view?.input || null, view?.fuel || null,
+                view?.output || null, Boolean(view?.burnTicks > 0)]);
+        }
+        return createHash('sha256').update(JSON.stringify(evidence)).digest('hex');
     }
     beginStep(goal, step) {
         const key = `${step.type}:${step.item}:${cellOf(this.position)}`;
-        const fingerprint = this.fingerprint();
+        const fingerprint = this.fingerprint(step);
         const failure = this.safe(() => this.store.failure(this.world, this.dimension, key, fingerprint));
         if (failure) {
             if (step.type === 'gather' && goal.resourceRecoveryEnabled) goal.skipResourceArea = true;
@@ -196,7 +223,7 @@ export class AgentMemory {
     failStep(goal, step, reason) {
         const diagnostic = textOf(reason);
         this.safe(() => this.store.fail(this.world, this.dimension,
-            `${step.type}:${step.item}:${cellOf(this.position)}`, this.fingerprint(), diagnostic));
+            `${step.type}:${step.item}:${cellOf(this.position)}`, this.fingerprint(step), diagnostic));
         this.record({ kind: 'goal_failed', item: step.item, position: this.position, verified: true,
             text: `Observed failure while trying to ${step.type} ${step.item}: ${diagnostic}` });
     }

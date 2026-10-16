@@ -12,7 +12,7 @@ For an existing locally modified installation, preserve `settings.js`, personal 
 
 ## Managed execution
 
-`!makeGoal` supports oak planks, sticks, crafting tables, cobblestone, furnaces, and wooden/stone tools. `!gatherGoal` supports log blocks. Targets are total inventory quantities from 1 to 64.
+`!makeGoal` supports oak planks, sticks, crafting tables, cobblestone, furnaces, wooden/stone tools, raw iron, iron ingots and charcoal. `!gatherGoal` supports log blocks. Targets are total inventory quantities from 1 to 64. See [verified smelting](mia-smelting.md) for fuel calculation, owned furnaces and recovery of queued work.
 
 - Mining, dropped-item pickup, and inventory verification run under one action owner. The planner waits for inventory updates and attempts pickup before deciding an item was not obtained. Verified inventory takes precedence over a false skill return.
 - Crafting reserves prerequisites in a virtual inventory, including the table and any required wooden pickaxe. It obtains wooden prerequisites before stone and replans from real inventory after each step.
@@ -54,4 +54,4 @@ Pinned upstream revisions and checksums are recorded in [the runtime manifest](.
 
 ## Local memory and next steps
 
-Local SQLite memory now stores verified outcomes, world-specific locations, station ownership, managed targets, and repeated-failure cooldowns. It supplements the retained JSON history format and can use existing loopback Ollama embeddings. See [the memory guide](mia-memory.md). Safe staircase mining, verified smelting/iron progression, and a managed shelter/survival workflow remain future work.
+Local SQLite memory now stores verified outcomes, world-specific locations, table/furnace ownership, managed targets, and repeated-failure cooldowns. It supplements the retained JSON history format and can use existing loopback Ollama embeddings. See [the memory guide](mia-memory.md). Safe staircase mining, iron equipment, broader cooking, and a managed shelter/survival workflow remain future work.

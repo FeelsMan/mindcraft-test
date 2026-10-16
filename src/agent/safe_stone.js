@@ -6,10 +6,11 @@ const hazards = new Set(['water', 'lava', 'fire', 'soul_fire', 'magma_block', 'c
 const solid = block => block?.boundingBox === 'block' && !hazards.has(block.name);
 const empty = block => block?.boundingBox === 'empty' && !hazards.has(block.name);
 const stone = block => block && ['stone', 'cobblestone'].includes(block.name);
+const ironOre = block => block && ['iron_ore', 'deepslate_iron_ore'].includes(block.name);
 const sameColumn = (a, b) => Math.floor(a.x) === b.x && Math.floor(a.z) === b.z;
 
 export function stoneStandingPositions(bot, block) {
-    if (!stone(block) || !block.position) return [];
+    if ((!stone(block) && !ironOre(block)) || !block.position) return [];
     const target = block.position;
     // Never select our support block, even if it is the closest stone.
     if (sameColumn(bot.entity.position, target) && target.y < Math.floor(bot.entity.position.y)) return [];
@@ -51,6 +52,16 @@ export function findSafeStoneTargets(bot, canBreak) {
         maxDistance: 64,
         count: 48
     }).map(position => bot.blockAt(position)).filter(Boolean);
+}
+
+export function findSafeIronTargets(bot, canBreak) {
+    return bot.findBlocks({ matching: ironOre,
+        useExtraInfo: block => canBreak(block) && stoneStandingPositions(bot, block).length > 0,
+        maxDistance: 64, count: 48 }).map(p => bot.blockAt(p)).filter(Boolean);
+}
+
+export async function collectIronFromSide(bot, candidates, api) {
+    return collectFromSide(bot, candidates, api, stoneStandingPositions, ironOre);
 }
 
 export async function collectStoneFromSide(bot, candidates, api) {

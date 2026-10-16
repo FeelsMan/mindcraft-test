@@ -1,14 +1,15 @@
 import { countItem } from './gather_goal.js';
 import { actionFailureDetail, collectAndVerify, waitForInventory, waitForGoalTurn } from './managed_goal.js';
+import { smeltingRecipes, furnacePending, furnaceEnergy, reserveFuel, SMELT_TICKS, ironPickaxes } from './smelting_plan.js';
 
 const toolKinds = ['axe', 'pickaxe', 'shovel', 'hoe', 'sword'];
 const tools = new Set(['wooden', 'stone'].flatMap(tier => toolKinds.map(kind => `${tier}_${kind}`)));
-export const supportedItems = new Set(['oak_planks', 'stick', 'crafting_table', 'cobblestone', 'furnace', ...tools]);
+export const supportedItems = new Set(['oak_planks', 'stick', 'crafting_table', 'cobblestone', 'furnace', 'raw_iron', ...Object.keys(smeltingRecipes), ...tools]);
 
 // Pure planner: reserve every ingredient in a virtual inventory, including
 // ingredients used for the crafting table. Recipe output counts are batch sizes.
-export function planMake(item, target, inventory, nearbyTable, recipesFor) {
-    if (!supportedItems.has(item)) throw new Error('Supported: oak_planks, stick, crafting_table, cobblestone, furnace, and wooden/stone tools.');
+export function planMake(item, target, inventory, nearbyTable, recipesFor, { furnace = false, snapshot = null } = {}) {
+    if (!supportedItems.has(item)) throw new Error('Supported: oak planks, sticks, crafting tables, cobblestone, furnaces, wooden/stone tools, raw_iron, iron_ingot and charcoal.');
     if (!Number.isSafeInteger(target) || target < 1 || target > 64) throw new Error('Target must be 1 to 64 total items.');
     const stock = { ...inventory };
     const steps = [];
@@ -20,6 +21,39 @@ export function planMake(item, target, inventory, nearbyTable, recipesFor) {
         const missing = amount - (stock[name] || 0);
         if (missing <= 0) return;
         if (chain.includes(name)) throw new Error('Recipe cycle: ' + name);
+        if (name === 'raw_iron') {
+            if (!Object.entries(stock).some(([name, count]) => count > 0 && ironPickaxes.has(name)))
+                ensure('stone_pickaxe', 1, [...chain, name]);
+            steps.push({ type: 'gather', item: name, count: missing });
+            stock[name] = (stock[name] || 0) + missing;
+            return;
+        }
+        if (smeltingRecipes[name]) {
+            if (!furnace && !(stock.furnace > 0)) ensure('furnace', 1, [...chain, name]);
+            const pending = furnacePending(snapshot, name);
+            // Retrieve already produced output before seeking more ingredients.
+            if (snapshot?.output?.count > 0) {
+                steps.push({ type: 'smelt', item: name, input: smeltingRecipes[name], count: missing, output: 1 });
+                stock[name] = amount;
+                return;
+            }
+            const needed = Math.max(0, missing - pending);
+            if (needed) {
+                ensure(smeltingRecipes[name], needed, [...chain, name]);
+                stock[smeltingRecipes[name]] -= needed;
+            }
+            // While input is cooking, elapsed burn is matched by elapsed cook
+            // progress (or by output now waiting in the furnace). Reopen before
+            // trusting that queue instead of inventing a new fuel shortage.
+            const stored = furnaceEnergy(snapshot, snapshot?.input ? snapshot.observedAt : Date.now());
+            const shortfall = Math.max(0, missing * SMELT_TICKS - (snapshot?.progressTicks || 0) - stored);
+            const energy = stored > 0 && shortfall <= 2 ? 0 : shortfall;
+            const planks = reserveFuel(stock, energy, name);
+            if (planks) { ensure('oak_planks', planks, [...chain, name]); stock.oak_planks -= planks; }
+            steps.push({ type: 'smelt', item: name, input: smeltingRecipes[name], count: missing, output: 1 });
+            stock[name] = amount;
+            return;
+        }
         if (name === 'oak_log' || name === 'cobblestone') {
             if (name === 'cobblestone' && !Object.entries(stock).some(([key, count]) => key.endsWith('_pickaxe') && count > 0)) {
                 // Stone drops cobblestone only with a pickaxe. Bootstrap a
@@ -63,14 +97,19 @@ export function inventoryCounts(bot) {
 
 export async function startMakeGoal(agent, item, target, api) {
     if (agent.gather_goal?.active) return 'A managed goal is active. Use !endGoal first.';
+    if (!Number.isSafeInteger(target) || target < 1 || target > 64) return 'Target must be 1 to 64 total items.';
+    let goal;
     const plan = () => {
+        if (smeltingRecipes[item] && api.hasFurnace?.(agent.bot) && !goal?.furnaceChecked)
+            return [{ type: 'inspect', item: 'furnace' }];
         if (item === 'crafting_table' && countItem(agent.bot, item) < target && api.hasOwnedTable?.(agent.bot))
             return [{ type: 'recover', item: 'crafting_table', output: 1 }];
-        return planMake(item, target, inventoryCounts(agent.bot), api.hasTable(agent.bot), api.recipes);
+        return planMake(item, target, inventoryCounts(agent.bot), api.hasTable(agent.bot), api.recipes,
+            { furnace: api.hasFurnace?.(agent.bot) || false, snapshot: api.furnaceSnapshot?.(agent.bot) || null });
     };
     let initial;
     try { initial = plan(); } catch (error) { return error.message; }
-    const goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running',
+    goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running',
         resourceRecoveryEnabled: Boolean(api.resourceRecovery) };
     agent.bot.craftingGoal = goal;
     agent.bot.managedGoal = goal;
@@ -96,6 +135,7 @@ export async function startMakeGoal(agent, item, target, api) {
     } catch (error) { cleanup(); throw error; }
     const describe = steps => steps.map(s => s.type === 'gather' ?
         `gather ${s.count} ${s.item}` : s.type === 'recover' ? 'recover my crafting table' :
+        s.type === 'inspect' ? 'inspect my furnace' : s.type === 'smelt' ? `smelt ${s.count} ${s.item} (verify each output)` :
         `craft ${s.item} (${s.batches} batch(es), ${s.output} each)`).join(' -> ');
     console.log('Make plan:', describe(initial) || 'Already complete');
     goal.done = (async () => {
@@ -126,6 +166,13 @@ export async function startMakeGoal(agent, item, target, api) {
                     if (goal.cancelled) return;
                     if (step.type === 'gather') {
                         verified = await collectAndVerify(agent, goal, step.item, api.collect, api.pickup, api.verifyTimeoutMs);
+                    } else if (step.type === 'inspect') {
+                        verified = await api.inspectFurnace(agent.bot);
+                        goal.furnaceChecked = verified;
+                    } else if (step.type === 'smelt') {
+                        await api.smelt(agent.bot, step);
+                        verified = await waitForInventory(agent, goal, step.item, before + 1, api.verifyTimeoutMs);
+                        goal.furnaceChecked = Boolean(api.furnaceSnapshot?.(agent.bot));
                     } else if (step.type === 'recover') {
                         await api.recoverTable(agent.bot);
                         verified = await waitForInventory(agent, goal, step.item, before + 1, api.verifyTimeoutMs);

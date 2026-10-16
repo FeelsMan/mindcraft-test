@@ -19,6 +19,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Crafting material protection | Routine navigation preserves recipe ingredients instead of spending crafting cobblestone on scaffolding. Wooden prerequisites are obtained before stone. Urgent safety actions can still use blocks when needed. |
 | Safer stone collection | Managed cobblestone collection uses reachable, supported side positions. Its approach cannot dig a shaft, build a pillar, or bridge a gap. |
 | Resource finding and route recovery | Managed goals recheck remembered resource areas and explore supported waypoints when local collection stalls. Searches and route retries are bounded, checkpointed, and verified against live blocks/inventory. See [resource recovery](docs/mia-resource-recovery.md). |
+| Verified iron/charcoal smelting | `!makeGoal` calculates ore/tools/fuel, reuses an owned furnace and its live queued contents, verifies output in inventory, and resumes after interruptions. See [smelting](docs/mia-smelting.md). |
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
 | Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
@@ -135,6 +136,8 @@ Send these through Minecraft chat or the dashboard **one at a time**, allowing e
 !makeGoal("stone_pickaxe", 1)
 !makeGoal("stone_axe", 1)
 !makeGoal("furnace", 1)
+!makeGoal("iron_ingot", 3)
+!makeGoal("charcoal", 2)
 ```
 
 Counts mean **the total to keep in inventory**, from 1 to 64. If Mia already has three oak logs, `!gatherGoal("oak_log", 4)` needs one more. A make goal calculates prerequisites from installed recipe data and current inventory, then verifies each result.
@@ -142,7 +145,7 @@ Counts mean **the total to keep in inventory**, from 1 to 64. If Mia already has
 | Command | Supported targets |
 | --- | --- |
 | `!gatherGoal(item, count)` | Log blocks, such as `oak_log` and `spruce_log`. |
-| `!makeGoal(item, count)` | `oak_planks`, `stick`, `crafting_table`, `cobblestone`, and `furnace`; wooden and stone axes, pickaxes, shovels, hoes, and swords. The crafting path currently uses oak and cobblestone. |
+| `!makeGoal(item, count)` | `oak_planks`, `stick`, `crafting_table`, `cobblestone`, `furnace`, `raw_iron`, `iron_ingot`, `charcoal`; wooden and stone axes, pickaxes, shovels, hoes, and swords. The crafting path uses oak/cobblestone and smelting uses an owned furnace. |
 
 During a managed goal:
 
@@ -171,7 +174,7 @@ That retrieves the owned station instead of crafting a duplicate. Configured loc
 
 - **26.3 support is experimental.** The pinned runtime includes compatibility fixes, but all new recipes, item components, and server/mod/plugin combinations have not been validated.
 - **Resources need a safe existing approach.** Managed goals search nearby areas with at most eight relocation attempts per resource within 96 blocks of its starting area. They can still block on cliffs, water, dense obstacles, or an unreachable owned table. Autonomous staircase/shaft mining is not implemented.
-- **The verified planner currently ends at wooden/stone tools and furnaces.** Smelting/iron progression and a material-counted shelter workflow are future extensions; making a furnace does not automatically start smelting.
+- **The verified planner supports wooden/stone tools, furnaces, raw iron, iron ingots and charcoal.** Request `!makeGoal("iron_ingot", 3)` or `!makeGoal("charcoal", 2)` explicitly. Iron equipment, food cooking and material-counted shelter construction remain future extensions.
 - **Cross-session recovery requires the correct world ID.** Only managed crafting/collection targets are checkpointed; a general survival/base-building goal manager is not implemented.
 - **Browser rendering and screenshot vision are disabled for protocol 777 in this build.** Use Minecraft's spectator view to watch Mia's perspective.
 - **Memory supplies historical evidence.** Resource areas can be depleted, structures can change, and the language model still needs reliable skills and planning. Memory does not train or replace the model.
@@ -184,7 +187,7 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The **106 passing regression tests** cover crafting/navigation/memory, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
+The **132 passing regression tests** cover crafting/navigation/memory, verified smelting and furnace-window cleanup, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [smelting](docs/mia-smelting.md), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
 
@@ -193,6 +196,11 @@ the initial local search, and completed a furnace without human relocation or
 manual resumes. It rechecked stale collection-area hints, packed and reused one
 owned table, and stopped on a deliberately sealed table without restarting the
 process or losing recipe ingredients. See [test conditions and limits](docs/mia-resource-recovery.md).
+
+A separate empty-inventory 26.3 smelting run verified three iron ingots using
+exactly two planks, reused the furnace for charcoal, and recovered a loaded
+furnace across process exit/restart to reach six total ingots without obtaining
+duplicate ore. See [smelting validation and limits](docs/mia-smelting.md).
 
 The memory integration check also terminated a bot process after two verified
 stone pickups, reopened its SQLite database in a new process, and completed the
@@ -208,7 +216,8 @@ Runtime revisions, package hashes, and data provenance are recorded in [the nati
 - [x] Bounded resource relocation and non-destructive managed navigation recovery.
 - [ ] General survival goal hierarchy with verified construction and food/base maintenance.
 - [ ] Safe staircase mining and more general resource acquisition.
-- [ ] Verified smelting and iron progression.
+- [x] Verified iron/charcoal smelting with owned-furnace and queued-input recovery.
+- [ ] Iron equipment and broader survival progression.
 - [ ] Shelter planning with calculated materials and checked placement.
 
 ## Project links and credits

@@ -5,8 +5,10 @@ import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { CraftingStation } from '../crafting_station.js';
 import { protectCraftingMaterials } from '../navigation_policy.js';
-import { findSafeStoneTargets, collectStoneFromSide, findSafeLogTargets, collectLogFromSide } from '../safe_stone.js';
-import { walkSafely, safeWaypoints } from '../navigation_recovery.js';
+import { findSafeStoneTargets, collectStoneFromSide, findSafeLogTargets, collectLogFromSide, findSafeIronTargets, collectIronFromSide } from '../safe_stone.js';
+import { ManagedFurnace, openManagedFurnace } from '../managed_smelting.js';
+import { ironPickaxes } from '../smelting_plan.js';
+import { walkSafely, safeWaypoints, safeSolid } from '../navigation_recovery.js';
 import { collectWithRecovery } from '../resource_recovery.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
@@ -70,6 +72,24 @@ function managedTravel(bot, position, range = 0) {
         prepareTravel: p => bot.craftingStation?.beforeTravel(p), log: message => log(bot, message) });
 }
 
+export function getManagedFurnace(bot) {
+    if (!bot.managedFurnace) bot.managedFurnace = new ManagedFurnace(bot, {
+        blockAt: p => bot.blockAt(new Vec3(p.x, p.y, p.z)),
+        move: p => managedTravel(bot, p, 2),
+        freeSpace: () => {
+            const p = world.getNearestFreeSpace(bot, 1, 6);
+            return p && safeSolid(bot.blockAt(p.offset(0, -1, 0))) ? p : null;
+        },
+        place: p => placeBlock(bot, 'furnace', p.x, p.y, p.z),
+        open: block => openManagedFurnace(bot, block),
+        log: message => log(bot, message)
+    });
+    return bot.managedFurnace;
+}
+
+export async function inspectManagedFurnace(bot) { return getManagedFurnace(bot).inspect(); }
+export async function smeltManaged(bot, step) { return getManagedFurnace(bot).smelt(step); }
+
 export async function recoverPosition(bot) {
     const deadline = Date.now() + 6000;
     for (const position of safeWaypoints(bot, { radii: [3, 5] }).slice(0, 8)) {
@@ -85,14 +105,17 @@ async function collectManagedResource(bot, goal, item) {
         throw new Error('Inventory full; make space before resuming the saved gathering goal.');
     if (item === 'cobblestone' && !bot.inventory.items().some(i => i.name.endsWith('_pickaxe')))
         throw new Error('No pickaxe in live inventory; the crafting goal must replan before mining stone.');
+    if (item === 'raw_iron' && !bot.inventory.items().some(i => ironPickaxes.has(i.name)))
+        throw new Error('Raw iron requires a copper/stone pickaxe or better; retain the goal and replan the tool.');
     craftingStation(bot);
     const movements = navigationMovements(bot);
     movements.dontMineUnderFallingBlock = true;
     const canBreak = block => movements.safeToBreak(block);
     return collectWithRecovery(bot, goal, item, {
         collect: async () => {
-            const candidates = item === 'cobblestone' ? findSafeStoneTargets(bot, canBreak) : findSafeLogTargets(bot, item, canBreak);
-            const collect = item === 'cobblestone' ? collectStoneFromSide : collectLogFromSide;
+            const candidates = item === 'cobblestone' ? findSafeStoneTargets(bot, canBreak) :
+                item === 'raw_iron' ? findSafeIronTargets(bot, canBreak) : findSafeLogTargets(bot, item, canBreak);
+            const collect = item === 'cobblestone' ? collectStoneFromSide : item === 'raw_iron' ? collectIronFromSide : collectLogFromSide;
             return collect(bot, candidates, { movements: () => navigationMovements(bot), canBreak,
                 travel: p => managedTravel(bot, p), log: message => log(bot, message) });
         },
@@ -522,7 +545,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
 
     const managedGoal = bot.managedGoal;
     if (managedGoal?.active && managedGoal.resourceRecoveryEnabled &&
-        (blockType === 'cobblestone' || blockType.endsWith('_log'))) {
+        (blockType === 'cobblestone' || blockType === 'raw_iron' || blockType.endsWith('_log'))) {
         for (let i = 0; i < num && !bot.interrupt_code; i++) {
             if (!await collectManagedResource(bot, managedGoal, blockType)) break;
             collected++;

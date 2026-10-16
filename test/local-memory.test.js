@@ -10,6 +10,7 @@ import { LocalMemoryStore } from '../src/agent/local_memory.js';
 import { AgentMemory, installLocalMemory } from '../src/agent/memory_runtime.js';
 import { MemoryBank } from '../src/agent/memory_bank.js';
 import { CraftingStation } from '../src/agent/crafting_station.js';
+import { ManagedFurnace } from '../src/agent/managed_smelting.js';
 import { ActionManager } from '../src/agent/action_manager.js';
 import { startMakeGoal } from '../src/agent/make_goal.js';
 import { cancelGatherGoal, startGatherGoal } from '../src/agent/gather_goal.js';
@@ -189,6 +190,42 @@ test('owned station survives restart, preserves unloaded chunks and forgets a lo
     block = { name: 'air' };
     assert.equal(station.available(), false); assert.equal(next.memory.station(), null);
     next.bot.game.dimension = 'the_nether'; assert.equal(station.available(), false);
+});
+
+test('owned furnace and placement intent persist, stay scoped, and recheck loaded blocks', t => {
+    const f = fixture(t), record = { position: { x: 7, y: 64, z: 4 }, dimension: 'overworld', pendingPlacement: true };
+    f.memory.saveFurnace(record); f.memory.close();
+    const next = fixture(t, f.root);
+    assert.deepEqual(next.memory.furnace(), record);
+    let block = null;
+    const furnace = new ManagedFurnace(next.bot, { blockAt: () => block });
+    assert(furnace.available(), 'Unloaded chunks retain historical ownership');
+    block = { name: 'furnace' }; assert(furnace.available());
+    assert.equal(next.memory.furnace().pendingPlacement, false);
+    next.bot.game.dimension = 'the_nether'; assert.equal(furnace.available(), false);
+    next.bot.game.dimension = 'overworld'; assert(furnace.available());
+    block = { name: 'air' }; assert.equal(furnace.available(), false); assert.equal(next.memory.furnace(), null);
+});
+
+test('a verified smelt is retrievable evidence, while failed output is not recorded', t => {
+    const f = fixture(t), goal = { kind: 'make', item: 'iron_ingot', target: 3 }, step = { type: 'smelt', item: 'iron_ingot' };
+    f.memory.beginGoal(goal); f.memory.beginStep(goal, step);
+    f.memory.stepResult(goal, step, false);
+    assert.equal(f.memory.store.candidates(f.memory.world, f.memory.dimension, 'iron_ingot').length, 0);
+    f.memory.stepResult(goal, step, true);
+    assert.equal(f.memory.store.candidates(f.memory.world, f.memory.dimension, 'iron_ingot')[0].kind, 'smelt');
+});
+
+test('new live furnace output or cleared contents invalidates a smelting failure cooldown', t => {
+    const f = fixture(t), goal = { kind: 'make', item: 'iron_ingot', target: 3 }, step = { type: 'smelt', item: 'iron_ingot' };
+    f.bot.managedFurnace = { record: { position: { x: 3, y: 64, z: 1 } },
+        snapshot: { input: { name: 'raw_iron', count: 3 }, fuel: null, output: null, burnTicks: 0 } };
+    f.memory.beginGoal(goal); f.memory.beginStep(goal, step); f.memory.failStep(goal, step, 'No output');
+    assert.throws(() => f.memory.beginStep(goal, step), /cooldown/);
+    f.bot.managedFurnace.snapshot.output = { name: 'iron_ingot', count: 1 };
+    assert.doesNotThrow(() => f.memory.beginStep(goal, step));
+    f.bot.managedFurnace.snapshot.output = null; f.bot.managedFurnace.snapshot.input = null;
+    assert.doesNotThrow(() => f.memory.beginStep(goal, step));
 });
 
 test('station ownership and position survive dimension changes without adopting player tables', t => {
