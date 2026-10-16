@@ -3,7 +3,10 @@ export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export function actionFailureDetail(result) {
     // ActionManager has already consumed/cleared bot.output at this point.
-    return String(result?.message || '').replace(/^Action output(?: \(shortened\))?:\s*/, '').trim().slice(-320);
+    const message = String(result?.message || '');
+    const error = message.match(/(?:^|\n)Action failed: [^\n]+/g)?.at(-1);
+    return (error ? error.replace(/^\s*Action failed:\s*/, '') :
+        message.replace(/^Action output(?: \(shortened\))?:\s*/, '')).trim().slice(-320);
 }
 
 export function countInventoryItem(bot, name) {

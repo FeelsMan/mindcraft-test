@@ -116,6 +116,48 @@ test('world ID survives a LAN port change and separates different worlds', t => 
     assert.equal(other.memory.recallPlace('base'), null);
 });
 
+test('resource hints use the current world/dimension and exact resource item', t => {
+    const f = fixture(t);
+    f.memory.store.putLocation(f.memory.world, 'overworld', 'resource:stone', 'resource', { x: 20, y: 64, z: 0 }, { item: 'cobblestone' });
+    f.memory.store.putLocation(f.memory.world, 'overworld', 'resource:wood', 'resource', { x: 10, y: 64, z: 0 }, { item: 'oak_log' });
+    f.memory.store.putLocation('other-world', 'overworld', 'resource:stone', 'resource', { x: 1, y: 64, z: 0 }, { item: 'cobblestone' });
+    assert.deepEqual(f.memory.resourceLocations('cobblestone'), [{ x: 20, y: 64, z: 0 }]);
+    f.bot.game.dimension = 'the_nether';
+    assert.deepEqual(f.memory.resourceLocations('cobblestone'), []);
+});
+
+test('resource exploration budget survives automatic restart but explicit resume renews it', async t => {
+    const f = fixture(t);
+    const goal = { kind: 'make', item: 'stone_pickaxe', target: 1 };
+    f.memory.beginGoal(goal);
+    goal.resourceSearch = { cobblestone: { origin: { x: 1, y: 64, z: 1 }, attempts: 7, visited: [{ x: 17, y: 64, z: 1 }] } };
+    f.memory.checkpoint(goal); f.memory.close();
+    const next = fixture(t, f.root);
+    let restored;
+    assert(await next.memory.resume(async () => {
+        restored = { kind: 'make', item: 'stone_pickaxe', target: 1 };
+        next.memory.beginGoal(restored);
+    }));
+    assert.equal(restored.resourceSearch.cobblestone.attempts, 7);
+    next.memory.checkpoint(restored, 'blocked');
+    assert(await next.memory.resume(async () => {
+        restored = { kind: 'make', item: 'stone_pickaxe', target: 1 };
+        next.memory.beginGoal(restored);
+    }, { manual: true }));
+    assert.deepEqual(restored.resourceSearch, {});
+});
+
+test('a gather cooldown skips the failing area only when resource recovery is available', t => {
+    const f = fixture(t), step = { type: 'gather', item: 'cobblestone' };
+    const old = { kind: 'make', item: 'stone_pickaxe', target: 1 };
+    f.memory.beginGoal(old); f.memory.beginStep(old, step); f.memory.failStep(old, step, 'No safe stone');
+    assert.throws(() => f.memory.beginStep(old, step), /Remembered failure cooldown/);
+    const goal = { ...old, resourceRecoveryEnabled: true };
+    f.memory.beginStep(goal, step);
+    assert.equal(goal.skipResourceArea, true);
+    assert.equal(goal.memoryStep.item, 'cobblestone');
+});
+
 test('without a world ID, sessions never reuse historical coordinates or goals', t => {
     const first = fixture(t, undefined, {}, { config: {} });
     first.memory.rememberPlace('base', { x: 3, y: 64, z: 5 }); first.memory.close();

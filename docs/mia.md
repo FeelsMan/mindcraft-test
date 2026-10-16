@@ -18,6 +18,7 @@ For an existing locally modified installation, preserve `settings.js`, personal 
 - Crafting reserves prerequisites in a virtual inventory, including the table and any required wooden pickaxe. It obtains wooden prerequisites before stone and replans from real inventory after each step.
 - During managed crafting, routine navigation and the collection plugin preserve recipe materials against scaffolding use. Urgent self-preservation, combat, and escape retain access to building blocks; the goal replans afterward.
 - Cobblestone mining chooses an exposed block and a supported side position with an existing walking route. Its approach cannot dig, build, pillar, or drop more than one block. It never selects the bot's own support block as a mining target. Pickup can enter a cleared block only when a solid floor and headroom remain.
+- Managed log/stone gathering searches other supported areas when local collection fails, using historical resource hints only after live rechecks. Exploration attempts survive automatic restart. Managed travel has awaited stall cancellation and supported detours; blocked routes retain the goal and owned station. See [resource and navigation recovery](mia-resource-recovery.md).
 - Self-preservation, fleeing, combat, and unstuck actions can preempt a managed goal. The goal waits, retains its target, and replans afterward. A completed craft is not repeated merely because its action was interrupted.
 - Hunting, incidental item collection, torch placement, idle staring, and NPC routines yield while the goal is active. Serialized action handoffs prevent two callers from owning the bot at once.
 - PvP attack/stop promises are awaited. Concurrent stop requests share a pending cleanup, preventing a late cleanup from clearing a later owner's movement goal.
@@ -36,7 +37,7 @@ The managed commands work with `allow_insecure_coding: false`. They do not requi
 
 ## Validation and provenance
 
-Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 86 passing tests covering crafting/navigation/memory, real collection-plugin cancellation, watchdog cleanup, process restart races, socket ownership, and real Node child-process replacement. See [restart/cancellation fixes](mia-lifecycle.md).
+Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). It covers crafting/navigation/memory, bounded resource recovery, real pathfinder cancellation, collection-plugin listener cleanup, process restart races, socket ownership, and real Node child-process replacement. See [resource recovery](mia-resource-recovery.md) and [restart/cancellation fixes](mia-lifecycle.md).
 
 Additional local integration runs used a disposable official Java 26.3 server, the native packages, real collection/crafting/navigation skills, safety modes, and PvP plugin. They exercised wooden/stone tools, exact furnace ingredients, real zombie combat interruption/resume, station reuse outside the normal 16-block search, retrieval before a 40-block trip, foreign-table preservation, station relocation, and uneven terrain. The final mining run recorded no cobblestone scaffolding placements or stone support-block digs.
 

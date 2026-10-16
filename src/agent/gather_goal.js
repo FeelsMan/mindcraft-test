@@ -6,14 +6,16 @@ export function countItem(bot, item) {
 export function gatherCommandAllowed(agent, name) {
     return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!endGoal', '!stop'].includes(name);
 }
-export async function startGatherGoal(agent, item, target, collect, pickup) {
+export async function startGatherGoal(agent, item, target, collect, pickup, { resourceRecovery = false } = {}) {
     if (!Number.isSafeInteger(target) || target < 1 || target > 64)
         return 'Choose a total inventory target from 1 to 64.';
     if (!item.endsWith('_log') || !agent.bot.registry.blocksByName[item] || !agent.bot.registry.itemsByName[item])
         return 'This first gatherGoal version supports log blocks such as oak_log and spruce_log.';
     if (agent.gather_goal?.active) return 'A collection goal is already active. Use !endGoal first.';
-    const goal = { item, target, active: true, cancelled: false, kind: 'gather', status: 'running' };
+    const goal = { item, target, active: true, cancelled: false, kind: 'gather', status: 'running',
+        resourceRecoveryEnabled: resourceRecovery };
     agent.gather_goal = goal;
+    agent.bot.managedGoal = goal;
     agent.gather_epoch = (agent.gather_epoch || 0) + 1;
     agent.actions.cancelResume();
     const stopOnDeath = () => { goal.cancelled = true; goal.cancelReason = 'death'; };
@@ -26,6 +28,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup) {
         await agent.history.save();
     } catch (error) {
         goal.active = false;
+        if (agent.bot.managedGoal === goal) delete agent.bot.managedGoal;
         agent.bot.removeListener('death', stopOnDeath);
         agent.bot.removeListener('end', stopOnEnd);
         agent.gather_epoch = (agent.gather_epoch || 0) + 1;
@@ -38,6 +41,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup) {
         try {
             while (!goal.cancelled) {
                 if (!await waitForGoalTurn(agent, goal)) break;
+                if (goal.navigationFailure) throw new Error(goal.navigationFailure);
                 if (goal.memoryDimension && goal.memoryDimension !== String(agent.bot.game?.dimension ?? 'unknown')) {
                     goal.cancelled = true; goal.cancelReason = 'dimension'; break;
                 }
@@ -65,7 +69,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup) {
                 noProgress = result.success && verified ? 0 : noProgress + 1;
                 if (noProgress >= 2) {
                     report = `Collection paused at ${after}/${target} ${item}: two attempts made no inventory progress. Move me nearer reachable logs and retry.`;
-                    const detail = actionFailureDetail(result);
+                    const detail = goal.resourceFailure || actionFailureDetail(result);
                     if (detail) report += ' ' + detail;
                     agent.local_memory?.failStep(goal, step, report);
                     break;
@@ -79,6 +83,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup) {
             report = `Collection stopped after an error: ${error.message}`;
         } finally {
             goal.active = false;
+            if (agent.bot.managedGoal === goal) delete agent.bot.managedGoal;
             agent.local_memory?.finishGoal(goal, completed, report);
             agent.gather_epoch = (agent.gather_epoch || 0) + 1;
             agent.bot.removeListener('death', stopOnDeath);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { LocalMemoryStore, cellOf, positionOf, validPosition } from './local_memory.js';
+import { restoredResourceSearch } from './resource_recovery.js';
 
 const dimensionOf = bot => String(bot.game?.dimension ?? 'unknown');
 const textOf = value => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 400);
@@ -109,10 +110,21 @@ export class AgentMemory {
         });
     }
 
+    resourceLocations(item) {
+        const p = this.position;
+        if (!p) return [];
+        return this.safe(() => this.store.locations(this.world, this.dimension, 'resource')
+            .filter(row => row.metadata.item === item && validPosition(row.position))
+            .sort((a, b) => Math.hypot(a.position.x - p.x, a.position.y - p.y, a.position.z - p.z) -
+                Math.hypot(b.position.x - p.x, b.position.y - p.y, b.position.z - p.z))
+            .slice(0, 6).map(row => row.position), []);
+    }
+
     beginGoal(goal) {
         goal.memoryId = randomUUID();
         goal.memoryDimension = this.dimension;
         goal.memoryDeaths = this.restoringGoal?.deaths || 0;
+        goal.resourceSearch = restoredResourceSearch(this.restoringGoal?.resourceSearch);
         this.checkpoint(goal, 'running');
     }
     checkpoint(goal, status = 'running', reason = '') {
@@ -126,6 +138,7 @@ export class AgentMemory {
                 id: goal.memoryId, kind: goal.kind, item: goal.item, target: goal.target,
                 dimension: goal.memoryDimension || this.dimension, status, reason: textOf(reason),
                 deaths: goal.memoryDeaths || 0,
+                resourceSearch: restoredResourceSearch(goal.resourceSearch),
                 step: goal.memoryStep ? { type: goal.memoryStep.type, item: goal.memoryStep.item } : null,
                 updated: this.clock()
             });
@@ -164,7 +177,10 @@ export class AgentMemory {
         const key = `${step.type}:${step.item}:${cellOf(this.position)}`;
         const fingerprint = this.fingerprint();
         const failure = this.safe(() => this.store.failure(this.world, this.dimension, key, fingerprint));
-        if (failure) throw new Error(`Remembered failure cooldown: ${failure.reason} Move to another resource area, change the needed tools/materials, or retry in ${Math.ceil((failure.expires - this.clock()) / 1000)} seconds.`);
+        if (failure) {
+            if (step.type === 'gather' && goal.resourceRecoveryEnabled) goal.skipResourceArea = true;
+            else throw new Error(`Remembered failure cooldown: ${failure.reason} Move to another resource area, change the needed tools/materials, or retry in ${Math.ceil((failure.expires - this.clock()) / 1000)} seconds.`);
+        }
         goal.memoryStep = { type: step.type, item: step.item, key, fingerprint };
         this.checkpoint(goal);
     }
@@ -194,7 +210,7 @@ export class AgentMemory {
         if (goal.dimension !== this.dimension || this.agent.recovering_from_death) return false;
         const command = `!${goal.kind === 'make' ? 'makeGoal' : 'gatherGoal'}(${JSON.stringify(goal.item)}, ${goal.target})`;
         let result;
-        this.restoringGoal = manual ? { ...goal, deaths: 0 } : goal;
+        this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {} } : goal;
         try { result = await execute(command); }
         finally { this.restoringGoal = null; }
         const current = this.pendingGoal();

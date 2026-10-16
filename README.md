@@ -2,7 +2,7 @@
 
 A fork of [Mindcraft](https://github.com/mindcraft-bots/mindcraft) focused on making **Mia, a local LLM Minecraft companion, complete small survival tasks reliably**.
 
-The focus is practical: calculate the materials, execute one step, check the actual inventory, and recover when the job is interrupted. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering and crafting, reusable crafting stations, safer cobblestone collection, and local SQLite memory.
+The focus is practical: calculate the materials, execute one step, check the actual inventory, and recover when the job is interrupted. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering and crafting, reusable crafting stations, bounded resource finding, safe navigation recovery, and local SQLite memory.
 
 [Quick start](#quick-start-with-local-ollama) · [Commands](#try-the-managed-goals) · [Memory](docs/mia-memory.md) · [Current limits](#current-limits) · [Runtime notes](docs/mia.md) · [Crafting and stations](docs/mia-crafting-stations.md)
 
@@ -18,6 +18,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Reusable crafting stations | Mia remembers a table she placed, returns to craft there, and retrieves it before normal travel beyond **32 blocks**. Pickup is verified. Tables belonging to other players are not claimed or retrieved. |
 | Crafting material protection | Routine navigation preserves recipe ingredients instead of spending crafting cobblestone on scaffolding. Wooden prerequisites are obtained before stone. Urgent safety actions can still use blocks when needed. |
 | Safer stone collection | Managed cobblestone collection uses reachable, supported side positions. Its approach cannot dig a shaft, build a pillar, or bridge a gap. |
+| Resource finding and route recovery | Managed goals recheck remembered resource areas and explore supported waypoints when local collection stalls. Searches and route retries are bounded, checkpointed, and verified against live blocks/inventory. See [resource recovery](docs/mia-resource-recovery.md). |
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
 | Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
@@ -169,7 +170,7 @@ That retrieves the owned station instead of crafting a duplicate. Configured loc
 ## Current limits
 
 - **26.3 support is experimental.** The pinned runtime includes compatibility fixes, but all new recipes, item components, and server/mod/plugin combinations have not been validated.
-- **Stone needs a safe existing approach.** Move Mia near exposed stone or an accessible cave if collection stops. Autonomous staircase/shaft mining is not implemented.
+- **Resources need a safe existing approach.** Managed goals search nearby areas with at most eight relocation attempts per resource within 96 blocks of its starting area. They can still block on cliffs, water, dense obstacles, or an unreachable owned table. Autonomous staircase/shaft mining is not implemented.
 - **The verified planner currently ends at wooden/stone tools and furnaces.** Smelting/iron progression and a material-counted shelter workflow are future extensions; making a furnace does not automatically start smelting.
 - **Cross-session recovery requires the correct world ID.** Only managed crafting/collection targets are checkpointed; a general survival/base-building goal manager is not implemented.
 - **Browser rendering and screenshot vision are disabled for protocol 777 in this build.** Use Minecraft's spectator view to watch Mia's perspective.
@@ -183,9 +184,15 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The current gameplay revision has **86 passing regression tests**, covering the crafting/navigation/memory behavior above plus real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test) and [restart/cancellation fixes](docs/mia-lifecycle.md).
+The **106 passing regression tests** cover crafting/navigation/memory, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
+
+The resource-recovery fixture started empty-handed, found wood and stone beyond
+the initial local search, and completed a furnace without human relocation or
+manual resumes. It rechecked stale collection-area hints, packed and reused one
+owned table, and stopped on a deliberately sealed table without restarting the
+process or losing recipe ingredients. See [test conditions and limits](docs/mia-resource-recovery.md).
 
 The memory integration check also terminated a bot process after two verified
 stone pickups, reopened its SQLite database in a new process, and completed the
@@ -198,6 +205,7 @@ Runtime revisions, package hashes, and data provenance are recorded in [the nati
 ## Next steps
 
 - [x] Local SQLite memory for verified outcomes, world-specific locations, and repeated-failure cooldowns.
+- [x] Bounded resource relocation and non-destructive managed navigation recovery.
 - [ ] General survival goal hierarchy with verified construction and food/base maintenance.
 - [ ] Safe staircase mining and more general resource acquisition.
 - [ ] Verified smelting and iron progression.

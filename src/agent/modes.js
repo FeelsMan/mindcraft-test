@@ -108,6 +108,12 @@ const modes_list = [
                 return; // don't get stuck when idle
             }
             const bot = agent.bot;
+            if (bot.navigationRecovery?.active) {
+                // Managed paths have their own short, awaited stall deadline.
+                // Let it settle/retry instead of starting another movement.
+                this.stuck_time = 0; this.prev_location = null; this.last_time = Date.now();
+                return;
+            }
             const cur_dig_block = bot.targetDigBlock;
             if (cur_dig_block && !this.prev_dig_block) {
                 this.prev_dig_block = cur_dig_block;
@@ -125,6 +131,17 @@ const modes_list = [
                 say(agent, 'I\'m stuck!');
                 this.stuck_time = 0;
                 execute(this, agent, async () => {
+                    const goal = agent.gather_goal;
+                    if (goal?.active) {
+                        const escaped = await skills.recoverPosition(bot);
+                        if (bot.interrupt_code) return;
+                        if (escaped) say(agent, 'I moved to a supported position; resuming my saved goal.');
+                        else {
+                            goal.navigationFailure = 'Safe unstuck routes failed. Goal blocked with progress retained; clear the obstruction or move me before !resumeGoal.';
+                            say(agent, goal.navigationFailure);
+                        }
+                        return;
+                    }
                     await withActionWatchdog(agent, () => skills.moveAway(bot, 5), 10000,
                         "Got stuck and couldn't get unstuck");
                     if (!bot.interrupt_code) say(agent, 'I\'m free.');

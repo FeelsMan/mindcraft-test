@@ -70,8 +70,10 @@ export async function startMakeGoal(agent, item, target, api) {
     };
     let initial;
     try { initial = plan(); } catch (error) { return error.message; }
-    const goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running' };
+    const goal = { item, target, active: true, cancelled: false, kind: 'make', status: 'running',
+        resourceRecoveryEnabled: Boolean(api.resourceRecovery) };
     agent.bot.craftingGoal = goal;
+    agent.bot.managedGoal = goal;
     agent.gather_goal = goal; // shared command guard, !stop and !endGoal
     agent.gather_epoch = (agent.gather_epoch || 0) + 1;
     agent.actions.cancelResume();
@@ -82,6 +84,7 @@ export async function startMakeGoal(agent, item, target, api) {
     const cleanup = () => {
         goal.active = false;
         if (agent.bot.craftingGoal === goal) delete agent.bot.craftingGoal;
+        if (agent.bot.managedGoal === goal) delete agent.bot.managedGoal;
         agent.gather_epoch = (agent.gather_epoch || 0) + 1;
         agent.bot.removeListener('death', onDeath);
         agent.bot.removeListener('end', onEnd);
@@ -102,6 +105,7 @@ export async function startMakeGoal(agent, item, target, api) {
         try {
             for (let attempt = 0; attempt < 512 && !goal.cancelled; attempt++) {
                 if (!await waitForGoalTurn(agent, goal)) break;
+                if (goal.navigationFailure) throw new Error(goal.navigationFailure);
                 if (goal.memoryDimension && goal.memoryDimension !== String(agent.bot.game?.dimension ?? 'unknown')) {
                     goal.cancelled = true; goal.cancelReason = 'dimension'; break;
                 }
@@ -144,7 +148,7 @@ export async function startMakeGoal(agent, item, target, api) {
                 }
                 noProgress = result.success && verified ? 0 : noProgress + 1;
                 if (noProgress >= 2) {
-                    const detail = actionFailureDetail(result);
+                    const detail = step.type === 'gather' && goal.resourceFailure || actionFailureDetail(result);
                     const reason = `Could not verify ${step.item} output.${detail ? ' ' + detail : ' Check ingredients, reachable logs/stone, the pickaxe, and space for the crafting table.'}`;
                     agent.local_memory?.failStep(goal, step, reason);
                     throw new Error(reason);

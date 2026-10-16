@@ -5,7 +5,9 @@ import Vec3 from 'vec3';
 import settings from "../../../settings.js";
 import { CraftingStation } from '../crafting_station.js';
 import { protectCraftingMaterials } from '../navigation_policy.js';
-import { findSafeStoneTargets, collectStoneFromSide } from '../safe_stone.js';
+import { findSafeStoneTargets, collectStoneFromSide, findSafeLogTargets, collectLogFromSide } from '../safe_stone.js';
+import { walkSafely, safeWaypoints } from '../navigation_recovery.js';
+import { collectWithRecovery } from '../resource_recovery.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -62,6 +64,44 @@ function craftingStation(bot) {
 }
 
 export { craftingStation as getCraftingStation };
+
+function managedTravel(bot, position, range = 0) {
+    return walkSafely(bot, position, { range, movements: () => navigationMovements(bot),
+        prepareTravel: p => bot.craftingStation?.beforeTravel(p), log: message => log(bot, message) });
+}
+
+export async function recoverPosition(bot) {
+    const deadline = Date.now() + 6000;
+    for (const position of safeWaypoints(bot, { radii: [3, 5] }).slice(0, 8)) {
+        if (bot.interrupt_code || Date.now() >= deadline) return false;
+        if (await walkSafely(bot, position, { movements: () => navigationMovements(bot),
+            timeoutMs: Math.min(2500, deadline - Date.now()), log: message => log(bot, message) })) return true;
+    }
+    return false;
+}
+
+async function collectManagedResource(bot, goal, item) {
+    if (bot.inventory.emptySlotCount() === 0 && !bot.inventory.items().some(i => i.name === item && i.count < 64))
+        throw new Error('Inventory full; make space before resuming the saved gathering goal.');
+    if (item === 'cobblestone' && !bot.inventory.items().some(i => i.name.endsWith('_pickaxe')))
+        throw new Error('No pickaxe in live inventory; the crafting goal must replan before mining stone.');
+    craftingStation(bot);
+    const movements = navigationMovements(bot);
+    movements.dontMineUnderFallingBlock = true;
+    const canBreak = block => movements.safeToBreak(block);
+    return collectWithRecovery(bot, goal, item, {
+        collect: async () => {
+            const candidates = item === 'cobblestone' ? findSafeStoneTargets(bot, canBreak) : findSafeLogTargets(bot, item, canBreak);
+            const collect = item === 'cobblestone' ? collectStoneFromSide : collectLogFromSide;
+            return collect(bot, candidates, { movements: () => navigationMovements(bot), canBreak,
+                travel: p => managedTravel(bot, p), log: message => log(bot, message) });
+        },
+        memories: () => bot.localMemory?.resourceLocations(item) || [],
+        waypoints: toward => safeWaypoints(bot, { toward: toward ? new Vec3(toward.x, toward.y, toward.z) : null }),
+        move: p => managedTravel(bot, p),
+        log: message => log(bot, message)
+    });
+}
 
 export async function craftRecipe(bot, itemName, num=1) {
     /**
@@ -480,6 +520,16 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
 
     let collected = 0;
 
+    const managedGoal = bot.managedGoal;
+    if (managedGoal?.active && managedGoal.resourceRecoveryEnabled &&
+        (blockType === 'cobblestone' || blockType.endsWith('_log'))) {
+        for (let i = 0; i < num && !bot.interrupt_code; i++) {
+            if (!await collectManagedResource(bot, managedGoal, blockType)) break;
+            collected++;
+        }
+        return collected > 0;
+    }
+
     const movements = navigationMovements(bot);
     movements.dontMineUnderFallingBlock = false;
     movements.dontCreateFlow = true;
@@ -610,7 +660,9 @@ export async function pickupNearbyItems(bot, { itemName = null } = {}) {
         let movements = navigationMovements(bot);
         movements.canDig = false;
         bot.pathfinder.setMovements(movements);
-        await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1));
+        if (bot.managedGoal?.active) {
+            if (!await managedTravel(bot, nearestItem.position)) break;
+        } else await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1));
         await new Promise(resolve => setTimeout(resolve, 200));
         let prev = nearestItem;
         nearestItem = getNearestItem(bot);
@@ -1142,6 +1194,13 @@ export async function goToGoal(bot, goal) {
 
     const destination = goal.entity?.position ||
         (Number.isFinite(goal.x) && Number.isFinite(goal.y) && Number.isFinite(goal.z) ? goal : bot.entity.position);
+    if (bot.managedGoal?.active && !(bot.modes.getActiveModes?.() || []).some(name =>
+        ['self_preservation', 'cowardice', 'self_defense'].includes(name))) {
+        const range = Number.isFinite(goal.rangeSq) ? Math.sqrt(goal.rangeSq) : 0;
+        if (!await managedTravel(bot, destination, range) && !bot.interrupt_code)
+            throw new Error('Safe navigation blocked; route retries exhausted and managed goal retained');
+        return !bot.interrupt_code;
+    }
     await bot.craftingStation?.beforeTravel(destination);
     if (bot.interrupt_code) return false;
 

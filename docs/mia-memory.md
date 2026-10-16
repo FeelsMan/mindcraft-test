@@ -83,6 +83,14 @@ summaries, and screenshots are not ingested into this database.
   It is available while a managed goal is active. `!resumeGoal` retries the saved
   unfinished target after you have addressed a blockage.
 
+The [resource recovery update](mia-resource-recovery.md) uses same-world,
+same-dimension collection areas as navigation hints and rechecks live blocks.
+Its visited areas and bounded exploration attempts are included in the existing
+goal checkpoint. Automatic restart retains that budget; explicit `!resumeGoal`
+renews it. A gathering cooldown skips the failing local area while allowing a
+bounded search elsewhere. These additions keep schema version 1 and preserve
+all existing records and world configuration.
+
 Tables remain remembered across restart/death. On dimension changes, each
 dimension retains its own table record. Nearby player tables are not adopted.
 A pending dropped-table pickup is discarded after death because its inventory
