@@ -1,5 +1,6 @@
 import { installDeathRecovery } from './death_recovery.js';
 import { installLocalMemory } from './memory_runtime.js';
+import { requestActionInterrupt } from './action_interrupt.js';
 import { History } from './history.js';
 import { Coder } from './coder.js';
 import { VisionInterpreter } from './vision/vision_interpreter.js';
@@ -251,11 +252,7 @@ export class Agent {
     }
 
     requestInterrupt() {
-        this.bot.interrupt_code = true;
-        this.bot.stopDigging();
-        this.bot.collectBlock.cancelTask();
-        this.bot.pathfinder.stop();
-        this.bot.pvp.stop();
+        requestActionInterrupt(this.bot);
     }
 
     clearBotLogs() {
@@ -550,6 +547,7 @@ export class Agent {
     
 
     cleanKill(msg='Killing agent process...', code=1) {
+        console.warn(`[Mia lifecycle] ${msg}`);
         this.history.add('system', msg);
         this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
         this.history.save();

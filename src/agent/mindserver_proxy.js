@@ -57,8 +57,9 @@ class MindServerProxy {
         });
 
         this.socket.on('restart-agent', (agentName) => {
-            console.log(`Restarting agent: ${agentName}`);
-            this.agent.cleanKill();
+            const name = agentName || this.name;
+            console.log(`${name} received a restart request.`);
+            this.agent?.cleanKill('Dashboard restart requested; saved state retained.');
         });
 		
         this.socket.on('send-message', (data) => {

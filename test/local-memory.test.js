@@ -268,6 +268,14 @@ test('managed log collection records verified progress and resource areas', asyn
     assert.match(context, /Previously collected oak_log/);
 });
 
+test('failed log collection saves the actual skill diagnostic in the persistent goal', async t => {
+    const f = fixture(t);
+    const collect = async bot => { bot.output += 'No oak_log nearby to collect.\n'; return false; };
+    await startGatherGoal(f.agent, 'oak_log', 2, collect);
+    assert.match(await f.agent.gather_goal.done, /No oak_log nearby/);
+    assert.match(f.memory.pendingGoal().reason, /No oak_log nearby/);
+});
+
 test('bounded retrieval uses local embeddings, caches vectors, and never leaks another world', async t => {
     let batches = 0;
     const f = fixture(t, undefined, {}, { config: { world_id: 'test-world', embeddings: true },

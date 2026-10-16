@@ -22,6 +22,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
 | Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
 | Persistent managed targets | A configured world ID lets unfinished crafting/collection goals replan after restart or respawn. Explicit cancellation persists; blocked/completed goals do not automatically restart. |
+| Coordinated process restart and cancellation | Pending dashboard restarts share one replacement, stale sockets cannot clear the new connection, and repeated collection interrupts share one cancellation instead of accumulating listeners. |
 
 The work changes the agent's runtime and control logic. It uses existing LLMs, including Andy through Ollama; it does not introduce a new trained Andy model.
 
@@ -182,7 +183,7 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The current gameplay revision has **66 passing regression tests**, covering inventory verification, resource planning, combat handoffs, cancellation, station ownership/recovery, navigation protections, unavailable-command retries, real SQLite persistence/scoping/cooldowns, restart/death goal recovery, bounded retrieval, and actual prompt/command entry points. See [test](test).
+The current gameplay revision has **86 passing regression tests**, covering the crafting/navigation/memory behavior above plus real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test) and [restart/cancellation fixes](docs/mia-lifecycle.md).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
 
@@ -207,6 +208,7 @@ Runtime revisions, package hashes, and data provenance are recorded in [the nati
 - [Mia runtime and recovery notes](docs/mia.md)
 - [Crafting, stations, and mining details](docs/mia-crafting-stations.md)
 - [Local memory and persistent managed goals](docs/mia-memory.md)
+- [Restart and collection cancellation fixes](docs/mia-lifecycle.md)
 - [General Mindcraft FAQ](FAQ.md) and [MineCollab task instructions](minecollab.md)
 - [Upstream Mindcraft](https://github.com/mindcraft-bots/mindcraft) and its [model/configuration reference](https://github.com/mindcraft-bots/mindcraft#configuration)
 - [Mineflayer and PrismarineJS](https://github.com/PrismarineJS/mineflayer)

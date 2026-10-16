@@ -215,6 +215,15 @@ test('no pickup or output stops after two failed attempts without claiming compl
     assert.equal(f.stock.oak_planks, undefined);
 });
 
+test('failed make reports retain the actual action diagnostic after bot logs are cleared', async () => {
+    const f = fixture();
+    f.api.verifyTimeoutMs = 5;
+    f.api.collect = async bot => { bot.output += 'No safely reachable exposed stone or logs at this location.\n'; return false; };
+    const goal = await start(f, 'oak_planks', 4);
+    assert.match(await goal.done, /No safely reachable exposed stone or logs/);
+    assert.equal(f.agent.bot.output, '');
+});
+
 test('endGoal while paused prevents the saved target from resuming', async () => {
     const f = fixture();
     let started;

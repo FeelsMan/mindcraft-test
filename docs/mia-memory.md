@@ -124,3 +124,8 @@ Use a different world ID for a disposable test world. The regression suite
 includes real SQLite reopen/scope/cooldown checks, actual managed-goal recovery,
 and the conversation prompt and command entry points. Full unattended survival
 remains a separate development milestone.
+
+If a restore succeeds but collection prints `MaxListenersExceededWarning`, see
+the [restart and cancellation follow-up](mia-lifecycle.md). It fixes repeated
+cancel requests and coordinates parent process replacement without changing
+the database or world ID.

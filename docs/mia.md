@@ -36,7 +36,7 @@ The managed commands work with `allow_insecure_coding: false`. They do not requi
 
 ## Validation and provenance
 
-Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 66 passing tests covering the previous crafting/navigation/retry behavior plus SQLite persistence, world/dimension isolation, failure cooldowns, goal recovery, bounded retrieval, and actual prompt/command entry points with model transport mocked.
+Run the committed regression suite with `npm run test:goals` (`npm.cmd run test:goals` in Windows PowerShell). The current gameplay revision has 86 passing tests covering crafting/navigation/memory, real collection-plugin cancellation, watchdog cleanup, process restart races, socket ownership, and real Node child-process replacement. See [restart/cancellation fixes](mia-lifecycle.md).
 
 Additional local integration runs used a disposable official Java 26.3 server, the native packages, real collection/crafting/navigation skills, safety modes, and PvP plugin. They exercised wooden/stone tools, exact furnace ingredients, real zombie combat interruption/resume, station reuse outside the normal 16-block search, retrieval before a 40-block trip, foreign-table preservation, station relocation, and uneven terrain. The final mining run recorded no cobblestone scaffolding placements or stone support-block digs.
 

@@ -1,5 +1,5 @@
 import { countItem } from './gather_goal.js';
-import { collectAndVerify, waitForInventory, waitForGoalTurn } from './managed_goal.js';
+import { actionFailureDetail, collectAndVerify, waitForInventory, waitForGoalTurn } from './managed_goal.js';
 
 const toolKinds = ['axe', 'pickaxe', 'shovel', 'hoe', 'sword'];
 const tools = new Set(['wooden', 'stone'].flatMap(tier => toolKinds.map(kind => `${tier}_${kind}`)));
@@ -144,7 +144,7 @@ export async function startMakeGoal(agent, item, target, api) {
                 }
                 noProgress = result.success && verified ? 0 : noProgress + 1;
                 if (noProgress >= 2) {
-                    const detail = String(agent.bot.output || '').trim().slice(-240);
+                    const detail = actionFailureDetail(result);
                     const reason = `Could not verify ${step.item} output.${detail ? ' ' + detail : ' Check ingredients, reachable logs/stone, the pickaxe, and space for the crafting table.'}`;
                     agent.local_memory?.failStep(goal, step, reason);
                     throw new Error(reason);

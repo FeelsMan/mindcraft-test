@@ -1,5 +1,5 @@
 // Deterministic log collection. Target is TOTAL inventory, not additional logs.
-import { collectAndVerify, waitForGoalTurn } from './managed_goal.js';
+import { actionFailureDetail, collectAndVerify, waitForGoalTurn } from './managed_goal.js';
 export function countItem(bot, item) {
     return bot.inventory.items().filter(x => x.name === item).reduce((n, x) => n + x.count, 0);
 }
@@ -65,6 +65,8 @@ export async function startGatherGoal(agent, item, target, collect, pickup) {
                 noProgress = result.success && verified ? 0 : noProgress + 1;
                 if (noProgress >= 2) {
                     report = `Collection paused at ${after}/${target} ${item}: two attempts made no inventory progress. Move me nearer reachable logs and retry.`;
+                    const detail = actionFailureDetail(result);
+                    if (detail) report += ' ' + detail;
                     agent.local_memory?.failStep(goal, step, report);
                     break;
                 }

@@ -4,6 +4,7 @@ import * as mc from '../utils/mcdata.js';
 import settings from './settings.js'
 import convoManager from './conversation.js';
 import { modeAllowedDuringGoal } from './managed_goal.js';
+import { withActionWatchdog } from './action_interrupt.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -124,10 +125,9 @@ const modes_list = [
                 say(agent, 'I\'m stuck!');
                 this.stuck_time = 0;
                 execute(this, agent, async () => {
-                    const crashTimeout = setTimeout(() => { agent.cleanKill("Got stuck and couldn't get unstuck") }, 10000);
-                    await skills.moveAway(bot, 5);
-                    clearTimeout(crashTimeout);
-                    say(agent, 'I\'m free.');
+                    await withActionWatchdog(agent, () => skills.moveAway(bot, 5), 10000,
+                        "Got stuck and couldn't get unstuck");
+                    if (!bot.interrupt_code) say(agent, 'I\'m free.');
                 });
             }
             this.last_time = Date.now();

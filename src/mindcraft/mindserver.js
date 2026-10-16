@@ -4,6 +4,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
+import { releaseAgentSocket, restartRegisteredAgent } from './agent_restart.js';
 import { readFileSync } from 'fs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -169,6 +170,7 @@ export function createMindServer(host_public = false, port = 8080) {
         socket.on('connect-agent-process', (agentName) => {
             if (agent_connections[agentName]) {
                 agent_connections[agentName].socket = socket;
+                curAgentName = agentName;
                 agentsStatusUpdate();
             }
         });
@@ -186,10 +188,8 @@ export function createMindServer(host_public = false, port = 8080) {
         });
 
         socket.on('disconnect', () => {
-            if (agent_connections[curAgentName]) {
+            if (releaseAgentSocket(curAgentName, agent_connections, socket)) {
                 console.log(`Agent ${curAgentName} disconnected`);
-                agent_connections[curAgentName].in_game = false;
-                agent_connections[curAgentName].socket = null;
                 agentsStatusUpdate();
             }
             if (agent_listeners.includes(socket)) {
@@ -210,13 +210,12 @@ export function createMindServer(host_public = false, port = 8080) {
             const agent = agent_connections[agentName];
             if (agent) {
                 agent.setSettings(settings);
-                agent.socket.emit('restart-agent');
+                restartRegisteredAgent(agentName, agent_connections, mindcraft.restartAgent);
             }
         });
 
         socket.on('restart-agent', (agentName) => {
-            console.log(`Restarting agent: ${agentName}`);
-            agent_connections[agentName].socket.emit('restart-agent');
+            restartRegisteredAgent(agentName, agent_connections, mindcraft.restartAgent);
         });
 
         socket.on('stop-agent', (agentName) => {

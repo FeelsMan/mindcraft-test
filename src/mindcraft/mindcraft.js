@@ -80,11 +80,17 @@ export function getAgentProcess(agentName) {
 
 export function startAgent(agentName) {
     if (agent_processes[agentName]) {
-        agent_processes[agentName].forceRestart();
+        // Connect must not kill a replacement child already starting up.
+        const agent = agent_processes[agentName];
+        return agent.start(true, 'Agent process started.', agent.count_id);
     }
     else {
         console.error(`Cannot start agent ${agentName}; not found`);
     }
+}
+
+export function restartAgent(agentName, gracefulStop) {
+    return agent_processes[agentName]?.forceRestart(gracefulStop) ?? false;
 }
 
 export function stopAgent(agentName) {

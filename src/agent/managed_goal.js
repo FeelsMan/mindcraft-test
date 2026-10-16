@@ -1,6 +1,11 @@
 export const emergencyModes = new Set(['self_preservation', 'cowardice', 'self_defense', 'unstuck']);
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+export function actionFailureDetail(result) {
+    // ActionManager has already consumed/cleared bot.output at this point.
+    return String(result?.message || '').replace(/^Action output(?: \(shortened\))?:\s*/, '').trim().slice(-320);
+}
+
 export function countInventoryItem(bot, name) {
     return bot.inventory.items().filter(item => item.name === name).reduce((sum, item) => sum + item.count, 0);
 }
