@@ -1,0 +1,42 @@
+name: Managed goal regressions
+
+on:
+  push:
+    branches:
+      - develop
+      - mia/grounded-crafting-2026-10-17
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'profiles/defaults/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - 'vendor/**'
+      - 'package.json'
+      - '.github/workflows/managed-goals.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-goals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev libxi-dev libxext-dev libx11-dev mesa-common-dev libgl1-mesa-dev
+      - name: Install the pinned Minecraft runtime
+        run: npm install --legacy-peer-deps
+      - name: Managed goal regressions
+        run: npm run test:goals
