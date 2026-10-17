@@ -1,3 +1,4 @@
+import { captureInventory, groundInventory, inventoryChanged } from '../agent/live_inventory.js';
 import { readFileSync, mkdirSync, writeFileSync} from 'fs';
 import { Examples } from '../utils/examples.js';
 import { getCommandDocs } from '../agent/commands/index.js';
@@ -230,7 +231,7 @@ export class Prompter {
                 + 'If a command is unavailable, do not retry it with different wording or move away and try again. Explain the limitation.';
             if (!settings.allow_insecure_coding)
                 prompt += '\n!newAction is unavailable because code generation is disabled.';
-            prompt += '\nFor supported wooden/stone tools and furnaces, prefer !makeGoal when available: it calculates prerequisites and verifies the requested inventory total. Do not gather an arbitrary stack of materials.';
+            prompt += '\nFor supported wooden/stone tools, oak planks, sticks, tables and furnaces, use !makeGoal when available: it calculates prerequisites and verifies the requested TOTAL inventory quantity. Do not hand-plan these recipes, gather an arbitrary stack, or turn a batch count into an item count.';
             prompt += await this.agent.local_memory?.context(messages.filter(m => m.role !== 'assistant').slice(-3).map(m => m.content).join(' ').slice(-1000)) || '';
             prompt += '\nHuman players can be addressed directly in chat. !startConversation is only for other bots; it cannot start a conversation with a human player.';
             const station = this.agent.bot.craftingStation;
@@ -246,13 +247,20 @@ export class Prompter {
             let generation;
 
             try {
-                generation = await this.chat_model.sendRequest(messages, prompt);
+                const inventory = captureInventory(this.agent.bot);
+                const grounded = groundInventory(messages, inventory);
+                generation = await this.chat_model.sendRequest(grounded, prompt);
+                if (inventoryChanged(this.agent.bot, inventory)) {
+                    console.log('[Mia inventory] Inventory changed during generation; refreshing the decision.');
+                    continue;
+                }
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
                 }
                 console.log("Generated response:", generation);
-                await this._saveLog(prompt, messages, generation, 'conversation');
+                await this._saveLog(prompt, grounded, generation, 'conversation');
+                if (inventoryChanged(this.agent.bot, inventory)) continue;
 
             } catch (error) {
                 console.error('Error during message generation or file writing:', error);

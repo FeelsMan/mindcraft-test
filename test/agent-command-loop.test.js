@@ -136,3 +136,38 @@ test('failed history, chat and memory cleanup cannot prevent the requested proce
     await agent.cleanKill('Restart', 2);
     assert.deepEqual(events, ['add', 'save', 'chat', 'close', 'exit:2']);
 });
+
+
+test('a newer human instruction prevents an older model reply from being delivered', async () => {
+    const f = fixture([]);
+    f.agent.self_prompter.state = 0;
+    let release, started;
+    const ready = new Promise(resolve => { started = resolve; });
+    let requests = 0;
+    f.agent.prompter.promptConvo = async () => {
+        requests++;
+        if (requests === 1) {
+            started();
+            return await new Promise(resolve => { release = resolve; });
+        }
+        return 'I will follow the newer instruction.';
+    };
+    const old = f.agent.handleMessage('CaptainNeyo', 'First instruction');
+    await ready;
+    await f.agent.handleMessage('CaptainNeyo', 'Newer instruction');
+    release('Stale reply to the first instruction.');
+    await old;
+    assert.equal(f.messages.some(s => s.includes('Stale reply')), false);
+    assert.equal(f.messages.some(s => s.includes('newer instruction')), true);
+});
+
+test('a memory query during managed work does not replace its instruction epoch', async () => {
+    const f = fixture([]);
+    f.agent.instruction_epoch = 4;
+    f.agent.gather_goal = { active: true };
+    f.agent.local_memory = { summary: () => 'Verified memory summary' };
+    await f.agent.handleMessage('CaptainNeyo', '!memory');
+    assert.equal(f.agent.instruction_epoch, 4);
+    assert.equal(f.requests(), 0);
+    assert.equal(f.messages.some(s => s.includes('Verified memory summary')), true);
+});

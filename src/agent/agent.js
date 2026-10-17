@@ -1,3 +1,4 @@
+import { reportManagedGoal } from './managed_goal_report.js';
 import { installDeathRecovery } from './death_recovery.js';
 import { installLocalMemory } from './memory_runtime.js';
 import { requestActionInterrupt } from './action_interrupt.js';
@@ -238,8 +239,12 @@ export class Agent {
         }
     }
 
-    async resumeMemoryGoal(manual = false) {
-        return await this.local_memory?.resume(command => executeCommand(this, command), { manual }) || false;
+    async resumeMemoryGoal(manual = false, requestContext = null) {
+        return await this.local_memory?.resume(command => executeCommand(this, command, requestContext), { manual }) || false;
+    }
+
+    async onManagedGoalCompleted(event) {
+        return await reportManagedGoal(this, event);
     }
 
     checkAllPlayersPresent() {
@@ -273,6 +278,16 @@ export class Agent {
 
     async handleMessage(source, message, max_responses=null) {
         if (this._shuttingDown || this.recovering_from_death) return false;
+        const humanInstruction = source && message && source !== 'system' && source !== this.name &&
+            !convoManager.isOtherAgent(source);
+        const forcedCommand = humanInstruction ? containsCommand(message) : null;
+        // Queries and ignored chat during an active goal do not replace its
+        // requester. New accepted work invalidates an older pending report.
+        if (humanInstruction && !this.gather_goal?.active &&
+            (!forcedCommand || isAction(forcedCommand)))
+            this.instruction_epoch = (this.instruction_epoch || 0) + 1;
+        const messageInstructionEpoch = this.instruction_epoch || 0;
+        const requestContext = { requester: source, instructionEpoch: messageInstructionEpoch };
         const messageDeathEpoch = this.death_epoch || 0;
         const messageGatherEpoch = this.gather_epoch || 0;
         const messageCommandFailureEpoch = this.command_failure_epoch || 0;
@@ -308,7 +323,7 @@ export class Agent {
                     // add the preceding message to the history to give context for newAction
                     this.history.add(source, message);
                 }
-                let execute_res = await executeCommand(this, message);
+                let execute_res = await executeCommand(this, message, requestContext);
                 if (execute_res) 
                     this.routeResponse(source, execute_res);
                 return true;
@@ -324,7 +339,7 @@ export class Agent {
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
-        const checkInterrupt = () => this._shuttingDown || messageCommandFailureEpoch !== (this.command_failure_epoch || 0) || messageGatherEpoch !== (this.gather_epoch || 0) || messageDeathEpoch !== (this.death_epoch || 0) || this.recovering_from_death || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
+        const checkInterrupt = () => this._shuttingDown || messageInstructionEpoch !== (this.instruction_epoch || 0) || messageCommandFailureEpoch !== (this.command_failure_epoch || 0) || messageGatherEpoch !== (this.gather_epoch || 0) || messageDeathEpoch !== (this.death_epoch || 0) || this.recovering_from_death || this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
         
         let behavior_log = this.bot.modes.flushBehaviorLog().trim();
         if (behavior_log.length > 0) {
@@ -395,7 +410,7 @@ export class Agent {
                         this.routeResponse(source, pre_message);
                 }
 
-                let execute_res = await executeCommand(this, res);
+                let execute_res = await executeCommand(this, res, requestContext);
 
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
                 used_command = true;
