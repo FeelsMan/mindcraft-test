@@ -68,3 +68,32 @@ obsolete completion callbacks. Run `npm run test:goals` on Node 22.13 or newer.
 This update improves the observation and control path. Language-model behavior
 still needs the manual gameplay sequence above; it does not add an autonomous
 survival schedule, mines or shelter building.
+
+
+## Update an existing Mia folder
+
+Stop Mindcraft first. The self-contained
+[crafting reliability installer](../scripts/mia-crafting-reliability-fix.cjs)
+can update the recent station-access or preceding smelting-command build without
+replacing local profiles, settings, credentials, package configuration or bot
+memory. It includes the station prerequisites when the preceding build needs
+them. Unknown local edits cause a refusal before source changes.
+
+Download the installer into the Mindcraft root, then run:
+
+```powershell
+node .\mia-crafting-reliability-fix.cjs --check
+node .\mia-crafting-reliability-fix.cjs --apply
+node .\mia-crafting-reliability-fix.cjs --verify
+node .\mia-crafting-reliability-fix.cjs --test
+node main.js --profiles .\mia-qwen.json
+```
+
+Source backups are stored beneath
+`mia-goal-backups/crafting-reliability/`. To restore the exact pre-patch source
+bytes, stop Mindcraft and run the same installer with `--restore`. Restore
+refuses to overwrite files edited after installation.
+
+A fresh Git checkout already contains the runtime changes and can run
+`npm run test:goals`. The installer uses its own explicit regression list so it
+does not need to replace an existing installation's `package.json`.
