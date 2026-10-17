@@ -13,7 +13,9 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Addition | Behavior in this fork |
 | --- | --- |
 | Native Java 26.3 runtime | Bundled, pinned protocol, data, chunk, physics, and Mineflayer changes connect directly to 26.3. This remains experimental. |
+| Fresh inventory for model decisions | Each model request receives a current carried-inventory snapshot after historical chat. Replies generated across an inventory change are retried with fresh state, within a bounded limit. Custom profiles receive the same grounding. |
 | Managed gathering and crafting | `!gatherGoal` and `!makeGoal` target a **total inventory quantity**, reuse supplies already on hand, and verify pickup/crafting before reporting completion. |
+| Crafting quantities and final reports | Supported legacy recipe commands route through managed crafting while preserving additional batch counts. Skill receipts distinguish batches, output gains and held totals; verified completion produces one final report without starting another action loop. See [crafting reliability](docs/mia-crafting-reliability.md). |
 | Combat interruption and recovery | Safety actions take priority. A managed goal retains its target, waits, then replans from the surviving inventory. Background hunting and incidental actions yield during the goal. |
 | Reusable crafting stations | Mia chooses supported placement and a reachable work position with a visible block face, remembers a table she placed, returns to craft there, and retrieves it before normal travel beyond **32 blocks**. Pickup is verified. Tables belonging to other players are not claimed or retrieved. See [station access](docs/mia-station-access.md). |
 | Crafting material protection | Routine navigation preserves recipe ingredients instead of spending crafting cobblestone on scaffolding. Wooden prerequisites are obtained before stone. Urgent safety actions can still use blocks when needed. |
@@ -147,6 +149,11 @@ These now start the same managed iron/charcoal planner, preserving the old comma
 **additional quantity**: two held ingots plus a request to smelt three means five
 total ingots. The resulting total must be at most 64. Other smelting inputs still
 use the original one-shot skill.
+
+Supported oak/wooden/stone `!craftRecipe` requests also use the managed planner.
+Their count remains **additional recipe batches**: `!craftRecipe("stick", 1)`
+produces four additional sticks. Use `!makeGoal("stick", 4)` to keep four total.
+See [inventory grounding, quantities and completion reports](docs/mia-crafting-reliability.md).
 
 | Command | Supported targets |
 | --- | --- |

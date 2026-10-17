@@ -98,6 +98,12 @@ export function inventoryCounts(bot) {
 export async function startMakeGoal(agent, item, target, api) {
     if (agent.gather_goal?.active) return 'A managed goal is active. Use !endGoal first.';
     if (!Number.isSafeInteger(target) || target < 1 || target > 64) return 'Target must be 1 to 64 total items.';
+    const requestContext = {
+        requester: api.requestContext?.requester || 'system',
+        instructionEpoch: Number.isSafeInteger(api.requestContext?.instructionEpoch)
+            ? api.requestContext.instructionEpoch : (agent.instruction_epoch || 0)
+    };
+    const initialHeld = countItem(agent.bot, item);
     let goal;
     const plan = () => {
         if (smeltingRecipes[item] && api.hasFurnace?.(agent.bot) && !goal?.furnaceChecked)
@@ -142,6 +148,7 @@ export async function startMakeGoal(agent, item, target, api) {
         let report = '';
         let noProgress = 0;
         let completed = false;
+        let completionEpoch = null;
         try {
             for (let attempt = 0; attempt < 512 && !goal.cancelled; attempt++) {
                 if (!await waitForGoalTurn(agent, goal)) break;
@@ -208,11 +215,27 @@ export async function startMakeGoal(agent, item, target, api) {
             else if (!report) report = 'Crafting stopped at the action limit. Goal not marked complete.';
         } catch (error) {
             report = 'Crafting stopped: ' + error.message;
-        } finally { cleanup(); agent.local_memory?.finishGoal(goal, completed, report); }
+        } finally {
+            cleanup();
+            // cleanup advances the epoch. Capture it before asynchronous history
+            // persistence so newer goals/instructions can invalidate this report.
+            completionEpoch = agent.gather_epoch;
+            agent.local_memory?.finishGoal(goal, completed, report);
+        }
         console.log(report);
         await agent.history.add('system', report);
         await agent.history.save();
-        if (!goal.cancelled) agent.openChat(report);
+        const reportIsCurrent = !goal.cancelled && completionEpoch === agent.gather_epoch;
+        if (reportIsCurrent && completed && typeof agent.onManagedGoalCompleted === 'function') {
+            try {
+                await agent.onManagedGoalCompleted({
+                    item, target, held: countItem(agent.bot, item), initialHeld,
+                    goalEpoch: completionEpoch, ...requestContext
+                });
+            } catch (error) {
+                console.warn('[Mia goal report] Completion feedback failed:', error.message);
+            }
+        } else if (reportIsCurrent) agent.openChat(report);
         return report;
     })();
     goal.done.catch(error => console.error('Could not save crafting report:', error));

@@ -1,3 +1,4 @@
+import { craftItemCount, waitForCraftOutput, craftingReceipt } from '../crafting_result.js';
 import * as mc from "../../utils/mcdata.js";
 import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
@@ -134,74 +135,85 @@ async function collectManagedResource(bot, goal, item) {
 
 export async function craftRecipe(bot, itemName, num=1) {
     /**
-     * Attempt to craft the given item name from a recipe. May craft many items.
-     * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @param {string} itemName, the item name to craft.
-     * @returns {Promise<boolean>} true if the recipe was crafted, false otherwise.
-     * @example
-     * await skills.craftRecipe(bot, "stick");
-     **/
+     * Craft up to num ADDITIONAL recipe batches, reporting observed item gains.
+     * A stick batch produces four sticks. Returns true only for verified output.
+     */
     if (bot.interrupt_code) return false;
-    const station = craftingStation(bot);
-
-    if (mc.getItemCraftingRecipes(itemName).length == 0) {
-        log(bot, `${itemName} is either not an item, or it does not have a crafting recipe!`);
+    if (!Number.isSafeInteger(num) || num < 1) {
+        log(bot, 'Crafting requires a positive whole number of recipe batches.');
         return false;
     }
-
-    // get recipes that don't require a crafting table
-    let recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, null); 
+    const recipeDocs = mc.getItemCraftingRecipes(itemName) || [];
+    if (!recipeDocs.length) {
+        log(bot, itemName + ' is not a craftable item.');
+        return false;
+    }
+    const station = craftingStation(bot);
+    let recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, null);
     let craftingTable = null;
     const craftingTableRange = 16;
     placeTable: if (!recipes || recipes.length === 0) {
         recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, true);
-        if(!recipes || recipes.length === 0) break placeTable; //Don't bother going to the table if we don't have the required resources.
-
-        // Look for crafting table
+        if (!recipes || recipes.length === 0) break placeTable;
         craftingTable = await station.forCraft();
         if (bot.interrupt_code) return false;
         craftingTable ??= world.getNearestBlock(bot, 'crafting_table', craftingTableRange);
-        if (craftingTable === null){
-
-            // Try to place crafting table
-            let hasTable = world.getInventoryCounts(bot)['crafting_table'] > 0;
-            if (hasTable) {
+        if (craftingTable === null) {
+            if (world.getInventoryCounts(bot).crafting_table > 0) {
                 craftingTable = await station.place();
                 if (!craftingTable || bot.interrupt_code) return false;
-                recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
-            }
-            else {
-                log(bot, `Crafting ${itemName} requires a crafting table.`)
+            } else {
+                log(bot, 'Crafting ' + itemName + ' requires a crafting table.');
                 return false;
             }
         }
-        else {
-            recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
-        }
+        recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, craftingTable);
     }
-    if (!recipes || recipes.length === 0) {
-        log(bot, `You do not have the resources to craft a ${itemName}. It requires: ${Object.entries(mc.getItemCraftingRecipes(itemName)[0][0]).map(([key, value]) => `${key}: ${value}`).join(', ')}.`);
+    if (!recipes || !recipes.length) {
+        log(bot, 'You do not have the resources to craft ' + itemName + '. Ingredients for ONE recipe batch: ' +
+            Object.entries(recipeDocs[0][0]).map(([name, count]) => name + ': ' + count).join(', ') + '.');
         return false;
     }
-    
     if (craftingTable && !await approachStation(bot, craftingTable.position, stationTravel(bot))) return false;
     if (bot.interrupt_code) return false;
-
     const recipe = recipes[0];
+    const outputPerBatch = recipe.result?.count;
+    const before = craftItemCount(bot, itemName);
+    if (!Number.isSafeInteger(outputPerBatch) || outputPerBatch < 1 || before === null) {
+        log(bot, 'Cannot verify the recipe batch output or current inventory for ' + itemName + '. No crafting started.');
+        return false;
+    }
+    const inventory = world.getInventoryCounts(bot);
+    const ingredients = mc.ingredientsFromPrismarineRecipe(recipe);
+    const limit = mc.calculateLimitingResource(inventory, ingredients);
+    const submitted = Math.min(Math.floor(limit.num), num);
+    if (!Number.isSafeInteger(submitted) || submitted < 1) {
+        log(bot, craftingReceipt({ item: itemName, requested: num, submitted: 0,
+            outputPerBatch, before, after: before, verified: false,
+            reason: 'No complete recipe batch can be made from the current ingredients.' }));
+        return false;
+    }
+    const expected = before + submitted * outputPerBatch;
+    if (!Number.isSafeInteger(expected)) {
+        log(bot, 'Requested crafting output exceeds a safe whole-item count.');
+        return false;
+    }
     console.log('crafting...');
-    //Check that the agent has sufficient items to use the recipe `num` times.
-    const inventory = world.getInventoryCounts(bot); //Items in the agents inventory
-    const requiredIngredients = mc.ingredientsFromPrismarineRecipe(recipe); //Items required to use the recipe once.
-    const craftLimit = mc.calculateLimitingResource(inventory, requiredIngredients);
-    
-    await bot.craft(recipe, Math.min(craftLimit.num, num), craftingTable);
-    if(craftLimit.num<num) log(bot, `Not enough ${craftLimit.limitingResource} to craft ${num}, crafted ${craftLimit.num}. You now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
-    else log(bot, `Successfully crafted ${itemName}, you now have ${world.getInventoryCounts(bot)[itemName]} ${itemName}.`);
-
-    //Equip any armor the bot may have crafted.
-    //There is probablly a more efficient method than checking the entire inventory but this is all mineflayer-armor-manager provides. :P
-    bot.armorManager.equipAll(); 
-
+    try {
+        await bot.craft(recipe, submitted, craftingTable);
+    } catch (error) {
+        log(bot, craftingReceipt({ item: itemName, requested: num, submitted,
+            outputPerBatch, before, after: craftItemCount(bot, itemName), verified: false,
+            reason: 'Crafting did not finish: ' + error.message }));
+        throw error;
+    }
+    const observed = await waitForCraftOutput(bot, itemName, expected);
+    log(bot, craftingReceipt({ item: itemName, requested: num, submitted,
+        outputPerBatch, before, after: observed.count, verified: observed.verified,
+        reason: submitted < num ? 'Ingredients limited the request to ' + submitted + ' recipe batch(es).' :
+            observed.verified ? '' : 'Output was not confirmed before interruption or the inventory timeout.' }));
+    if (!observed.verified || bot.interrupt_code) return false;
+    bot.armorManager.equipAll();
     return true;
 }
 

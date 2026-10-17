@@ -1,6 +1,7 @@
+import { supportedItems } from '../make_goal.js';
 import { gatherCommandAllowed, countItem } from '../gather_goal.js';
 import { smeltingRecipes } from '../smelting_plan.js';
-import { getBlockId, getItemId } from "../../utils/mcdata.js";
+import { getBlockId, getItemId, getItemCraftingRecipes } from "../../utils/mcdata.js";
 import { actionsList } from './actions.js';
 import { queryList } from './queries.js';
 import settings from '../settings.js';
@@ -221,7 +222,7 @@ function numParams(command) {
     return commandParams(command).length;
 }
 
-export async function executeCommand(agent, message) {
+export async function executeCommand(agent, message, requestContext = null) {
     const name = containsCommand(message);
     if (name) {
         const unavailable = commandUnavailableReason(agent, name);
@@ -255,10 +256,37 @@ export async function executeCommand(agent, message) {
                     if (!Number.isSafeInteger(count) || count < 1 || !Number.isSafeInteger(target) || target > 64)
                         return 'Managed smelting supports at most 64 total output items. Use !makeGoal with a total target from 1 to 64.';
                     console.log(`Managed smelting: ${count} additional ${output}; inventory target ${target}.`);
-                    return commandMap['!makeGoal'].perform(agent, output, target);
+                    return commandMap['!makeGoal'].perform(agent, output, target, requestContext);
                 }
             }
-            const result = await command.perform(agent, ...parsed.args);
+            // Keep legacy recipe BATCH semantics, but let the same managed
+            // controller reserve prerequisites and verify the output. Start it
+            // before runAsAction so startup cannot wait on its own action slot.
+            if (parsed.commandName === '!craftRecipe') {
+                const [item, batches] = parsed.args;
+                const craftable = supportedItems.has(item) &&
+                    !smeltingRecipes[item] && !['cobblestone', 'raw_iron'].includes(item);
+                if (craftable) {
+                    const unavailable = commandUnavailableReason(agent, '!makeGoal');
+                    if (unavailable) return unavailable;
+                    const recipes = getItemCraftingRecipes(item) || [];
+                    const recipe = recipes.find(([, result]) =>
+                        Number.isSafeInteger(result?.craftedCount) && result.craftedCount > 0);
+                    if (!recipe) return 'Cannot determine the recipe output for ' + item + '. No crafting started.';
+                    const outputPerBatch = recipe[1].craftedCount;
+                    const target = countItem(agent.bot, item) + batches * outputPerBatch;
+                    if (!Number.isSafeInteger(batches) || batches < 1 ||
+                        !Number.isSafeInteger(target) || target > 64)
+                        return 'Managed crafting supports at most 64 total output items. Use !makeGoal with a TOTAL target from 1 to 64.';
+                    console.log('Managed crafting: ' + batches + ' recipe batch(es), ' +
+                        outputPerBatch + ' ' + item + ' per batch; total inventory target ' + target + '.');
+                    return commandMap['!makeGoal'].perform(agent, item, target, requestContext);
+                }
+            }
+            const args = [...parsed.args];
+            if (parsed.commandName === '!makeGoal' || parsed.commandName === '!resumeGoal')
+                args.push(requestContext);
+            const result = await command.perform(agent, ...args);
             return result;
         }
     }

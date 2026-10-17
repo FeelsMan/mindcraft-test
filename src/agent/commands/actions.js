@@ -38,7 +38,8 @@ export const actionsList = [
             item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
         },
-        perform: (agent, item, count) => startMakeGoal(agent, item, count, {
+        perform: (agent, item, count, requestContext = null) => startMakeGoal(agent, item, count, {
+            requestContext,
             resourceRecovery: true,
             recipes: getItemCraftingRecipes,
             hasTable: bot => skills.getCraftingStation(bot).available() || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
@@ -56,7 +57,7 @@ export const actionsList = [
     {
         name: '!resumeGoal',
         description: 'Resume the saved managed crafting/collection target in the current world and dimension, replanning from live inventory and renewing bounded exploration attempts. Recently failing gathering areas are skipped. Cancelled/completed goals are not restarted.',
-        perform: async agent => await agent.resumeMemoryGoal(true) ? 'Saved goal resumed from current inventory.' :
+        perform: async (agent, requestContext = null) => await agent.resumeMemoryGoal(true, requestContext) ? 'Saved goal resumed from current inventory.' :
             'No resumable managed goal in this world/dimension, or a goal is already active.'
     },
     {
@@ -313,7 +314,7 @@ export const actionsList = [
     },
     {
         name: '!craftRecipe',
-        description: 'Craft the given recipe a given number of times.',
+        description: 'Request ADDITIONAL recipe BATCHES, not an item count. Supported oak/wooden/stone recipes automatically use the verified managed planner and may gather missing prerequisites. One stick batch makes 4 sticks; one oak_planks batch makes 4 planks. Prefer !makeGoal for a TOTAL inventory target. Other recipes retain one-shot crafting.',
         params: {
             'recipe_name': { type: 'ItemName', description: 'The name of the output item to craft.' },
             'num': { type: 'int', description: 'The number of times to craft the recipe. This is NOT the number of output items, as it may craft many more items depending on the recipe.', domain: [1, Number.MAX_SAFE_INTEGER] }
