@@ -42,6 +42,19 @@ jobs:
         run: npm install --legacy-peer-deps
       - name: Managed goal regressions
         run: npm run test:goals
+
+  installer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - name: Installer backup and rollback regressions
+        run: node --test test/crafting-installer.test.cjs
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:

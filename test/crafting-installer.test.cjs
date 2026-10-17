@@ -151,3 +151,23 @@ test('corrupted backup bytes fail verification before any restore write', { skip
         assert.deepEqual(fs.readFileSync(path.join(f.root, 'src/agent/agent.js')), installed);
     } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
+
+
+test('a damaged manifest cannot turn an existing source backup into a delete operation', { skip: !hasBaseline }, () => {
+    const f = fixture();
+    try {
+        ok(run(f, '--apply'));
+        const session = JSON.parse(latest(f)).session;
+        const directory = path.join(f.root, 'mia-goal-backups/crafting-reliability', session);
+        const filename = path.join(directory, 'manifest.json');
+        const manifest = JSON.parse(fs.readFileSync(filename, 'utf8'));
+        const original = manifest.files.find(file => file.path === 'src/agent/agent.js');
+        original.existed = false;
+        fs.writeFileSync(filename, JSON.stringify(manifest));
+        const installed = fs.readFileSync(path.join(f.root, 'src/agent/agent.js'));
+        const result = run(f, '--restore');
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /Unexpected backup entry/);
+        assert.deepEqual(fs.readFileSync(path.join(f.root, 'src/agent/agent.js')), installed);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
