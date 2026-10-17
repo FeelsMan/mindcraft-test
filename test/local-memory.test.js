@@ -23,15 +23,28 @@ const recipes = {
     stone_pickaxe: [[{ stick: 2, cobblestone: 3 }, { craftedCount: 1 }]]
 };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// A single teardown hook owns a LIFO stack: close every SQLite connection
+// before deleting the directory that contains it. Windows keeps open files locked.
+const cleanups = new WeakMap();
+function after(t, cleanup) {
+    if (!cleanups.has(t)) {
+        const callbacks = [];
+        cleanups.set(t, callbacks);
+        t.after(() => {
+            for (const callback of callbacks.reverse()) callback();
+        });
+    }
+    cleanups.get(t).push(cleanup);
+}
 function directory(t) {
     const root = mkdtempSync(join(tmpdir(), 'mia-memory-'));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    after(t, () => rmSync(root, { recursive: true, force: true }));
     return root;
 }
 function store(t, options) {
     const filename = join(directory(t), 'memory.sqlite');
     const db = new LocalMemoryStore(filename, options);
-    t.after(() => db.close());
+    after(t, () => db.close());
     return { db, filename };
 }
 function fixture(t, root = directory(t), initial = {}, options = {}) {
@@ -56,7 +69,7 @@ function fixture(t, root = directory(t), initial = {}, options = {}) {
     };
     agent.actions = new ActionManager(agent);
     installLocalMemory(agent, { root, settings: { host: '127.0.0.1', port: 12345 }, config: { world_id: 'test-world', embeddings: false }, ...options });
-    t.after(() => agent.local_memory?.close());
+    after(t, () => agent.local_memory?.close());
     const calls = [];
     const api = {
         recipes: name => recipes[name] || [], hasTable: () => true, verifyTimeoutMs: 5,
@@ -78,7 +91,7 @@ test('SQLite persists verified evidence and FTS matches; proposed or assistant a
     assert.equal(db.record('w', 'overworld', { kind: 'gather', item: 'diamond', text: 'I will get diamonds' }), null);
     assert.equal(db.record('w', 'overworld', { kind: 'assistant', item: 'diamond', text: 'I have diamonds', verified: true }), null);
     record(db); db.close();
-    const reopened = new LocalMemoryStore(filename); t.after(() => reopened.close());
+    const reopened = new LocalMemoryStore(filename); after(t, () => reopened.close());
     assert.equal(reopened.stats('w', 'overworld').experiences, 1);
     assert.equal(reopened.candidates('w', 'overworld', 'cobblestone')[0].lexical, true);
 });

@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - mia/grounded-crafting-2026-10-17
+      - mia/windows-memory-cleanup-2026-10-17
   pull_request:
     paths:
       - 'src/**'
@@ -62,3 +63,24 @@ jobs:
           path: scripts/mia-crafting-reliability-fix.cjs
           if-no-files-found: error
           retention-days: 30
+
+  windows-memory:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - name: Install the memory tests' only external dependency
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP "mia-memory-test-deps"
+          npm install --prefix $deps --ignore-scripts --no-audit --no-fund --package-lock=false vec3@0.1.10
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force node_modules | Out-Null
+          Copy-Item -Recurse -Path (Join-Path $deps "node_modules/vec3") -Destination "node_modules/vec3"
+      - name: SQLite memory regressions on Windows
+        run: node --test test/local-memory.test.js
