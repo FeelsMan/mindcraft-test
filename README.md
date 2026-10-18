@@ -2,7 +2,7 @@
 
 A fork of [Mindcraft](https://github.com/mindcraft-bots/mindcraft) focused on making **Mia, a local LLM Minecraft companion, complete small survival tasks reliably**.
 
-The focus is practical: calculate the materials, execute one step, check the actual inventory, and recover when the job is interrupted. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering and crafting, reusable crafting stations, bounded resource finding, safe navigation recovery, and local SQLite memory.
+The focus is practical: calculate the materials, execute one step, check the actual inventory or world blocks, and recover when the job is interrupted. This branch includes experimental native **Minecraft Java 26.3** support, managed gathering/crafting and starter shelter construction, reusable crafting stations, bounded resource finding, safe navigation recovery, and local SQLite memory.
 
 [Quick start](#quick-start-with-local-ollama) · [Commands](#try-the-managed-goals) · [Memory](docs/mia-memory.md) · [Current limits](#current-limits) · [Runtime notes](docs/mia.md) · [Crafting and stations](docs/mia-crafting-stations.md)
 
@@ -15,6 +15,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Native Java 26.3 runtime | Bundled, pinned protocol, data, chunk, physics, and Mineflayer changes connect directly to 26.3. This remains experimental. |
 | Fresh inventory for model decisions | Each model request receives a current carried-inventory snapshot after historical chat. Replies generated across an inventory change are retried with fresh state, within a bounded limit. Custom profiles receive the same grounding. |
 | Managed gathering and crafting | `!gatherGoal` and `!makeGoal` target a **total inventory quantity**, reuse supplies already on hand, and verify pickup/crafting before reporting completion. |
+| Verified starter shelter | `!shelterGoal` selects level ground, gathers calculated oak supplies, places a fixed 5×5 shelter and outside access steps, verifies actual blocks, tests the door, and remembers home. Partial builds resume at the same site. See [shelter building](docs/mia-shelter.md). |
 | Crafting quantities and final reports | Supported legacy recipe commands route through managed crafting while preserving additional batch counts. Skill receipts distinguish batches, output gains and held totals; verified completion produces one final report without starting another action loop. See [crafting reliability](docs/mia-crafting-reliability.md). |
 | Combat interruption and recovery | Safety actions take priority. A managed goal retains its target, waits, then replans from the surviving inventory. Background hunting and incidental actions yield during the goal. |
 | Reusable crafting stations | Mia chooses supported placement and a reachable work position with a visible block face, remembers a table she placed, returns to craft there, and retrieves it before normal travel beyond **32 blocks**. Pickup is verified. Tables belonging to other players are not claimed or retrieved. See [station access](docs/mia-station-access.md). |
@@ -140,9 +141,12 @@ Send these through Minecraft chat or the dashboard **one at a time**, allowing e
 !makeGoal("furnace", 1)
 !makeGoal("iron_ingot", 3)
 !makeGoal("charcoal", 2)
+!shelterGoal
 ```
 
 Counts mean **the total to keep in inventory**, from 1 to 64. If Mia already has three oak logs, `!gatherGoal("oak_log", 4)` needs one more. A make goal calculates prerequisites from installed recipe data and current inventory, then verifies each result.
+
+The separate `!shelterGoal` builds a fixed starter shelter in the Overworld. Start near a level, clear **7×7** work area and reachable oak logs. Its 5×5 shell has a 3×3 interior, two-block headroom, roof, door and outside roof-access steps. It needs **58 oak planks and one oak door**; crafting a vanilla door batch takes six more planks and yields three doors. With a usable table, an empty inventory therefore needs **16 oak logs**; making a table adds one log. Existing supplies and verified partial construction reduce that deficit. The existing ground is the floor. See [construction and interruption tests](docs/mia-shelter.md).
 
 Older examples may select `!smeltItem("raw_iron", 3)` or `!smeltItem("oak_log", 2)`.
 These now start the same managed iron/charcoal planner, preserving the old command's
@@ -159,7 +163,8 @@ Existing Mia folders can use the [reversible source installer](scripts/mia-craft
 | Command | Supported targets |
 | --- | --- |
 | `!gatherGoal(item, count)` | Log blocks, such as `oak_log` and `spruce_log`. |
-| `!makeGoal(item, count)` | `oak_planks`, `stick`, `crafting_table`, `cobblestone`, `furnace`, `raw_iron`, `iron_ingot`, `charcoal`; wooden and stone axes, pickaxes, shovels, hoes, and swords. The crafting path uses oak/cobblestone and smelting uses an owned furnace. |
+| `!makeGoal(item, count)` | `oak_planks`, `oak_door`, `stick`, `crafting_table`, `cobblestone`, `furnace`, `raw_iron`, `iron_ingot`, `charcoal`; wooden and stone axes, pickaxes, shovels, hoes, and swords. The crafting path uses oak/cobblestone and smelting uses an owned furnace. |
+| `!shelterGoal` | One fixed oak starter shelter. Reuses its saved site and rechecks already placed blocks. |
 
 During a managed goal:
 
@@ -188,8 +193,9 @@ That retrieves the owned station instead of crafting a duplicate. Configured loc
 
 - **26.3 support is experimental.** The pinned runtime includes compatibility fixes, but all new recipes, item components, and server/mod/plugin combinations have not been validated.
 - **Resources need a safe existing approach.** Managed goals search nearby areas with at most eight relocation attempts per resource within 96 blocks of its starting area. They can still block on cliffs, water, dense obstacles, or an unreachable owned table. Autonomous staircase/shaft mining is not implemented.
-- **The verified planner supports wooden/stone tools, furnaces, raw iron, iron ingots and charcoal.** Request `!makeGoal("iron_ingot", 3)` or `!makeGoal("charcoal", 2)` explicitly. Iron equipment, food cooking and material-counted shelter construction remain future extensions.
-- **Cross-session recovery requires the correct world ID.** Only managed crafting/collection targets are checkpointed; a general survival/base-building goal manager is not implemented.
+- **The verified planner supports wooden/stone tools, oak doors, furnaces, raw iron, iron ingots and charcoal.** Iron equipment and food cooking remain future extensions.
+- **Shelter building uses one fixed oak blueprint and an existing level floor.** It clears small plants, but does not excavate, flatten hills, fill holes, add lighting/beds, set a respawn point, or design arbitrary buildings. A blocked site is retained for inspection rather than silently relocated.
+- **Cross-session recovery requires the correct world ID.** Managed crafting/collection and shelter goals are checkpointed; a general survival/base-building goal manager is not implemented.
 - **Browser rendering and screenshot vision are disabled for protocol 777 in this build.** Use Minecraft's spectator view to watch Mia's perspective.
 - **Memory supplies historical evidence.** Resource areas can be depleted, structures can change, and the language model still needs reliable skills and planning. Memory does not train or replace the model.
 
@@ -201,7 +207,7 @@ Run the committed regression suite:
 npm.cmd run test:goals
 ```
 
-The **163 passing regression tests** cover crafting/navigation/memory, supported station placement and visible access, verified smelting and furnace-window cleanup, routing older smelting commands into managed goals, early-startup shutdown, resource search bounds and stale hints, awaited path cancellation and detours, real collection-plugin cancellation, watchdog cleanup, process restart races/escalation, socket ownership, and real Node child-process replacement. See [test](test), [station access](docs/mia-station-access.md), [smelting](docs/mia-smelting.md), [resource recovery](docs/mia-resource-recovery.md), and [restart/cancellation fixes](docs/mia-lifecycle.md).
+The regression suite covers crafting/navigation/memory, supported station placement and visible access, verified smelting, legacy command routing, fresh inventory decisions, process restart/cancellation, and installer backup/rollback. Shelter tests use actual block shapes, raycasting, recipes and pathfinding for **1.21.4 and native 26.3**, replacing network/physics execution with controlled I/O. They exercise the complete blueprint, outside roof access, door traversal, calculated materials, combat/death recovery, explicit cancellation and SQLite world scoping. These automated checks do not substitute for live shelter gameplay testing. See [test](test) and [shelter validation](docs/mia-shelter.md).
 
 Additional local checks used a real Java 26.3 server and the actual Mineflayer skills and safety modes. They exercised stone tools, furnace crafting, real combat interruption/resume, table reuse and retrieval, and uneven terrain with no cobblestone scaffolding or support-block digs. Starting tools and controlled combat effects were supplied to isolate these behaviors. Full autonomous survival remains unverified.
 

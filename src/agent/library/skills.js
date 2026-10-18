@@ -12,6 +12,7 @@ import { ironPickaxes } from '../smelting_plan.js';
 import { walkSafely, safeWaypoints } from '../navigation_recovery.js';
 import { collectWithRecovery } from '../resource_recovery.js';
 import { approachStation, canUseStation, placeSupportedStation } from '../station_access.js';
+import { prepareShelterTravel, leaveShelterForResource } from '../shelter_building.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -74,14 +75,21 @@ export { craftingStation as getCraftingStation };
 
 function managedTravel(bot, position, range = 0) {
     return walkSafely(bot, position, { range, movements: () => navigationMovements(bot),
-        prepareTravel: p => bot.craftingStation?.beforeTravel(p), log: message => log(bot, message) });
+        prepareTravel: p => prepareManagedTravel(bot, p), log: message => log(bot, message) });
 }
 
 function stationTravel(bot) {
     return { movements: () => navigationMovements(bot),
-        prepareTravel: position => bot.craftingStation?.beforeTravel(position),
+        prepareTravel: position => prepareManagedTravel(bot, position),
         log: message => log(bot, message) };
 }
+
+async function prepareManagedTravel(bot, position) {
+    await prepareShelterTravel(bot, position, { movements: () => navigationMovements(bot), log: message => log(bot, message) });
+    if (!bot.interrupt_code) await bot.craftingStation?.beforeTravel(position);
+}
+
+export { stationTravel as getManagedTravel };
 
 export function getManagedFurnace(bot) {
     if (!bot.managedFurnace) bot.managedFurnace = new ManagedFurnace(bot, {
@@ -108,6 +116,8 @@ export async function recoverPosition(bot) {
 }
 
 async function collectManagedResource(bot, goal, item) {
+    await leaveShelterForResource(bot, { movements: () => navigationMovements(bot), log: message => log(bot, message) });
+    if (bot.interrupt_code) return false;
     if (bot.inventory.emptySlotCount() === 0 && !bot.inventory.items().some(i => i.name === item && i.count < 64))
         throw new Error('Inventory full; make space before resuming the saved gathering goal.');
     if (item === 'cobblestone' && !bot.inventory.items().some(i => i.name.endsWith('_pickaxe')))
@@ -569,7 +579,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
             const candidates = findSafeStoneTargets(bot, canBreak);
             const success = await collectStoneFromSide(bot, candidates, {
                 movements: () => navigationMovements(bot), canBreak,
-                prepareTravel: position => bot.craftingStation?.beforeTravel(position),
+                prepareTravel: position => prepareManagedTravel(bot, position),
                 log: message => log(bot, message)
             });
             if (!success) break;
@@ -612,7 +622,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
         const block = blocks[0];
         // Collectblock walks directly through its plugin, so migrate the owned
         // station before handing it a distant mining target.
-        await bot.craftingStation?.beforeTravel(block.position);
+        await prepareManagedTravel(bot, block.position);
         if (bot.interrupt_code) break;
         await bot.tool.equipForBlock(block);
         if (isLiquid) {
@@ -1229,7 +1239,7 @@ export async function goToGoal(bot, goal) {
             throw new Error('Safe navigation blocked; route retries exhausted and managed goal retained');
         return !bot.interrupt_code;
     }
-    await bot.craftingStation?.beforeTravel(destination);
+    await prepareManagedTravel(bot, destination);
     if (bot.interrupt_code) return false;
 
     const nonDestructiveMovements = navigationMovements(bot);

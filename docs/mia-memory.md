@@ -2,8 +2,8 @@
 
 The memory update adds a local SQLite store for verified managed-goal outcomes,
 failed attempts, owned crafting tables, resource areas, and named places. It
-supports the existing wooden/stone crafting planner; it does not add shelter
-construction, smelting, iron progression, or a new trained language model.
+supports the managed crafting/smelting planners and fixed starter shelter builder.
+It stores historical evidence and progress; it does not train a new language model.
 
 ## Setup
 
@@ -71,6 +71,12 @@ summaries, and screenshots are not ingested into this database.
   after verified progress. A restart/reconnect restores the target and computes
   a fresh plan from current inventory; an already fulfilled target completes
   without making more items.
+- `!shelterGoal` saves its versioned blueprint and site before construction.
+  Recovery reads live world blocks, recalculates the missing supplies, and
+  continues at that same site. It never treats inventory loss as proof that a
+  wall was placed. After the full shell/door and entrance traversal are verified,
+  the interior is saved as the named place `home`. That is a waypoint, not a bed
+  or Minecraft respawn point. See [the shelter guide](mia-shelter.md).
 - Combat retains the current in-process target as before. Death interrupts the
   action, waits for respawn and action cleanup, then replans. Two deaths during
   the same restored goal block automatic continuation to prevent a death loop.

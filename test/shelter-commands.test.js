@@ -1,0 +1,52 @@
+import test, { mock } from 'node:test';
+import assert from 'node:assert/strict';
+import { shelterWorld } from './helpers/shelter-world.js';
+
+// Exercise the real parser/catalog/controller. Only Minecraft skill I/O and
+// the login-initialized recipe lookup are supplied by the world fixture.
+let fixture;
+mock.module(new URL('../src/agent/library/skills.js', import.meta.url).href, { namedExports: {
+    getCraftingStation: () => ({ available: () => true }),
+    getManagedTravel: () => fixture.travel,
+    collectBlock: (...args) => fixture.api.collect(...args),
+    craftRecipe: (...args) => fixture.api.craft(...args),
+    pickupNearbyItems: async () => {}
+} });
+const mc = await import('../src/utils/mcdata.js');
+mock.module(new URL('../src/utils/mcdata.js', import.meta.url).href, { namedExports: {
+    ...mc, getItemCraftingRecipes: name => fixture.api.recipes(name)
+} });
+const { executeCommand, getCommandDocs } = await import('../src/agent/commands/index.js');
+
+test('shelter command starts without owning its own action slot and routes one verified completion to the requester', async () => {
+    fixture = shelterWorld('1.21.4', { oak_planks: 58, oak_door: 1 });
+    const deliveries = [];
+    fixture.agent.instruction_epoch = 7;
+    fixture.agent.routeResponse = (requester, message) => deliveries.push({ requester, message });
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal', { requester: 'CaptainNeyo', instructionEpoch: 7 }), /Shelter goal started/);
+    assert.match(await fixture.agent.gather_goal.done, /Shelter complete/);
+    assert.equal(deliveries.length, 1); assert.equal(deliveries[0].requester, 'CaptainNeyo');
+    assert.match(deliveries[0].message, /Entrance tested, door closed/);
+    assert.match(getCommandDocs(fixture.agent), /!shelterGoal/);
+});
+
+test('disabled shelter commands are unavailable in docs and cannot start a goal', async () => {
+    fixture = shelterWorld(); fixture.agent.blocked_actions = ['!shelterGoal'];
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal'), /disabled/);
+    assert.equal(fixture.agent.gather_goal, undefined);
+    assert.equal(getCommandDocs(fixture.agent).includes('!shelterGoal'), false);
+});
+
+test('an existing managed goal and extraneous blueprint arguments are rejected', async () => {
+    fixture = shelterWorld(); fixture.agent.gather_goal = { active: true };
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal'), /managed goal is active/);
+    delete fixture.agent.gather_goal;
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal("mansion")'), /requires 0 args/);
+    assert.equal(fixture.agent.gather_goal, undefined);
+});
+
+test('an unsupported dimension cannot start construction', async () => {
+    fixture = shelterWorld(); fixture.bot.game.dimension = 'the_nether';
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal'), /Overworld only/);
+    assert.equal(fixture.agent.gather_goal, undefined);
+});

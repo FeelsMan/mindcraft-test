@@ -1,4 +1,5 @@
 import { startMakeGoal } from '../make_goal.js';
+import { startShelterGoal } from '../shelter_goal.js';
 import { hasReusableTable } from '../crafting_station.js';
 import { getItemCraftingRecipes } from '../../utils/mcdata.js';
 import { getNearestBlock } from '../library/world.js';
@@ -30,33 +31,43 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
     return wrappedAction;
 }
 
+function managedSkills(requestContext) {
+    return {
+        requestContext,
+        resourceRecovery: true,
+        recipes: getItemCraftingRecipes,
+        hasTable: bot => skills.getCraftingStation(bot).available() || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
+        hasOwnedTable: bot => { skills.getCraftingStation(bot); return hasReusableTable(bot); },
+        recoverTable: bot => bot.craftingStation.pack(),
+        hasFurnace: bot => skills.getManagedFurnace(bot).available(),
+        furnaceSnapshot: bot => skills.getManagedFurnace(bot).snapshot,
+        inspectFurnace: skills.inspectManagedFurnace,
+        smelt: skills.smeltManaged,
+        collect: skills.collectBlock,
+        pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
+        craft: skills.craftRecipe,
+        navigation: bot => skills.getManagedTravel(bot)
+    };
+}
+
 export const actionsList = [
     {
+        name: '!shelterGoal',
+        description: 'Build or finish my fixed 5x5 oak shelter with a 3x3 interior, two-block headroom, roof, working door and three outside access-step blocks. Finds a reachable level, clear 7x7 work area nearby; clears only small plants, gathers calculated supplies, verifies each block and tests the entrance. Reuses my saved site and partial build, pauses for safety and saves home after final checks. No terrain excavation or filling. Use !endGoal to cancel or !resumeGoal after an unresolved failure.',
+        perform: (agent, requestContext = null) => startShelterGoal(agent, managedSkills(requestContext))
+    },
+    {
         name: '!makeGoal',
-        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup, crafting and smelting. Supports oak planks, sticks, tables, cobblestone, wooden/stone tools, furnaces, raw_iron, iron_ingot and charcoal. Obtains required tools and fuel; reuses owned stations and live furnace contents. Searches reachable resource areas with bounded retries. Pauses for combat. Configured memory restores targets across death/restart; stop cancels them. Unresolved failures block the goal.',
+        description: 'Make and KEEP a total inventory quantity, calculating prerequisites and verifying pickup, crafting and smelting. Supports oak planks/doors, sticks, tables, cobblestone, wooden/stone tools, furnaces, raw_iron, iron_ingot and charcoal. Obtains required tools and fuel; reuses owned stations and live furnace contents. Searches reachable resource areas with bounded retries. Pauses for combat. Configured memory restores targets across death/restart; stop cancels them. Unresolved failures block the goal.',
         params: {
             item: { type: 'ItemName', description: 'Item to make, such as wooden_axe.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing items.', domain: [1, 64] }
         },
-        perform: (agent, item, count, requestContext = null) => startMakeGoal(agent, item, count, {
-            requestContext,
-            resourceRecovery: true,
-            recipes: getItemCraftingRecipes,
-            hasTable: bot => skills.getCraftingStation(bot).available() || Boolean(getNearestBlock(bot, 'crafting_table', 16)),
-            hasOwnedTable: bot => { skills.getCraftingStation(bot); return hasReusableTable(bot); },
-            recoverTable: bot => bot.craftingStation.pack(),
-            hasFurnace: bot => skills.getManagedFurnace(bot).available(),
-            furnaceSnapshot: bot => skills.getManagedFurnace(bot).snapshot,
-            inspectFurnace: skills.inspectManagedFurnace,
-            smelt: skills.smeltManaged,
-            collect: skills.collectBlock,
-            pickup: (bot, item) => skills.pickupNearbyItems(bot, { itemName: item }),
-            craft: skills.craftRecipe
-        })
+        perform: (agent, item, count, requestContext = null) => startMakeGoal(agent, item, count, managedSkills(requestContext))
     },
     {
         name: '!resumeGoal',
-        description: 'Resume the saved managed crafting/collection target in the current world and dimension, replanning from live inventory and renewing bounded exploration attempts. Recently failing gathering areas are skipped. Cancelled/completed goals are not restarted.',
+        description: 'Resume the saved managed crafting, collection or shelter goal in the current world and dimension, replanning from live inventory/blocks and renewing bounded exploration attempts. Recently failing gathering areas are skipped. Cancelled/completed goals are not restarted.',
         perform: async (agent, requestContext = null) => await agent.resumeMemoryGoal(true, requestContext) ? 'Saved goal resumed from current inventory.' :
             'No resumable managed goal in this world/dimension, or a goal is already active.'
     },

@@ -10,6 +10,11 @@ const stations = new Set(['crafting_table', 'furnace']);
 
 export function supportedStationSpace(bot, position) {
     const p = point(position), pos = bot.entity.position;
+    const site = bot.managedGoal?.active && bot.managedGoal?.kind === 'shelter' && bot.managedGoal.shelter?.origin;
+    if (site && p.y >= site.y && p.y <= site.y + 2 &&
+        (p.x >= site.x && p.x <= site.x + 4 && p.z >= site.z && p.z <= site.z + 4 ||
+         p.x === site.x + 2 && p.z === site.z - 1 ||
+         p.x === site.x - 1 && [site.z, site.z - 1].includes(p.z))) return false;
     // Full blocks cannot occupy either the player's feet or head, including
     // a player straddling a cell boundary. Do not push her away after placing.
     const overlaps = pos.x + 0.3 > p.x && pos.x - 0.3 < p.x + 1 &&

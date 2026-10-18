@@ -284,7 +284,7 @@ export async function executeCommand(agent, message, requestContext = null) {
                 }
             }
             const args = [...parsed.args];
-            if (parsed.commandName === '!makeGoal' || parsed.commandName === '!resumeGoal')
+            if (['!makeGoal', '!resumeGoal', '!shelterGoal'].includes(parsed.commandName))
                 args.push(requestContext);
             const result = await command.perform(agent, ...args);
             return result;

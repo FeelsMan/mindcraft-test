@@ -7,6 +7,7 @@ on:
       - mia/grounded-crafting-2026-10-17
       - mia/windows-memory-cleanup-2026-10-17
       - mia/nearby-interactions-2026-10-18
+      - mia/shelter-builder-2026-10-18
   pull_request:
     paths:
       - 'src/**'
@@ -97,4 +98,7 @@ jobs:
       - name: Install interaction test dependencies without native viewer builds
         run: npm install --ignore-scripts --legacy-peer-deps --no-audit --no-fund
       - name: Nearby block interaction regressions on Windows
-        run: node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js
+        run: |
+          node scripts/install-native-minecraft.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js

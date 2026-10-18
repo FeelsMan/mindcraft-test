@@ -4,12 +4,12 @@ import { smeltingRecipes, furnacePending, furnaceEnergy, reserveFuel, SMELT_TICK
 
 const toolKinds = ['axe', 'pickaxe', 'shovel', 'hoe', 'sword'];
 const tools = new Set(['wooden', 'stone'].flatMap(tier => toolKinds.map(kind => `${tier}_${kind}`)));
-export const supportedItems = new Set(['oak_planks', 'stick', 'crafting_table', 'cobblestone', 'furnace', 'raw_iron', ...Object.keys(smeltingRecipes), ...tools]);
+export const supportedItems = new Set(['oak_planks', 'oak_door', 'stick', 'crafting_table', 'cobblestone', 'furnace', 'raw_iron', ...Object.keys(smeltingRecipes), ...tools]);
 
 // Pure planner: reserve every ingredient in a virtual inventory, including
 // ingredients used for the crafting table. Recipe output counts are batch sizes.
 export function planMake(item, target, inventory, nearbyTable, recipesFor, { furnace = false, snapshot = null } = {}) {
-    if (!supportedItems.has(item)) throw new Error('Supported: oak planks, sticks, crafting tables, cobblestone, furnaces, wooden/stone tools, raw_iron, iron_ingot and charcoal.');
+    if (!supportedItems.has(item)) throw new Error('Supported: oak planks, oak doors, sticks, crafting tables, cobblestone, furnaces, wooden/stone tools, raw_iron, iron_ingot and charcoal.');
     if (!Number.isSafeInteger(target) || target < 1 || target > 64) throw new Error('Target must be 1 to 64 total items.');
     const stock = { ...inventory };
     const steps = [];
@@ -65,7 +65,7 @@ export function planMake(item, target, inventory, nearbyTable, recipesFor, { fur
             return;
         }
         if (!supportedItems.has(name)) throw new Error('Unsupported prerequisite: ' + name);
-        if (tools.has(name) || name === 'furnace') ensureTable([...chain, name]);
+        if (tools.has(name) || name === 'furnace' || name === 'oak_door') ensureTable([...chain, name]);
         // Select recipes whose prerequisites this planner can obtain. Stone
         // recipes use cobblestone; alternative stone variants are not assumed.
         const recipe = (recipesFor(name) || []).find(([ingredients, result]) =>

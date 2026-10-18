@@ -232,6 +232,7 @@ export class Prompter {
             if (!settings.allow_insecure_coding)
                 prompt += '\n!newAction is unavailable because code generation is disabled.';
             prompt += '\nFor supported wooden/stone tools, oak planks, sticks, tables and furnaces, use !makeGoal when available: it calculates prerequisites and verifies the requested TOTAL inventory quantity. Do not hand-plan these recipes, gather an arbitrary stack, or turn a batch count into an item count.';
+            prompt += '\nFor a small starter shelter, use !shelterGoal when available. It selects a level site, plans supplies, verifies the shell/door and remembers home. It supports one fixed oak blueprint; do not claim a different structure was built.';
             prompt += await this.agent.local_memory?.context(messages.filter(m => m.role !== 'assistant').slice(-3).map(m => m.content).join(' ').slice(-1000)) || '';
             prompt += '\nHuman players can be addressed directly in chat. !startConversation is only for other bots; it cannot start a conversation with a human player.';
             const station = this.agent.bot.craftingStation;

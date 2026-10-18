@@ -3,12 +3,17 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { LocalMemoryStore, cellOf, positionOf, validPosition } from './local_memory.js';
 import { restoredResourceSearch } from './resource_recovery.js';
+import { shelterRecord } from './shelter_blueprint.js';
+import Vec3 from 'vec3';
 
 const dimensionOf = bot => String(bot.game?.dimension ?? 'unknown');
 const textOf = value => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 400);
 const resumable = new Set(['running', 'paused']);
-const validGoal = goal => goal && ['make', 'gather'].includes(goal.kind) &&
-    /^[a-z0-9_]{1,80}$/.test(goal.item) && Number.isSafeInteger(goal.target) && goal.target >= 1 && goal.target <= 64;
+const validGoal = goal => goal && ['make', 'gather', 'shelter'].includes(goal.kind) &&
+    /^[a-z0-9_]{1,80}$/.test(goal.item) && Number.isSafeInteger(goal.target) && goal.target >= 1 && goal.target <= 64 &&
+    (goal.kind !== 'shelter' || goal.item === 'shelter' && goal.target === 1 && (goal.shelter == null || shelterRecord(goal.shelter)));
+const stepKey = (step, position) => `${step.type}:${step.item}:` + (step.position ?
+    `block:${step.position.x},${step.position.y},${step.position.z}` : cellOf(position));
 const cosine = (a, b) => {
     if (!a || !b || a.length !== b.length) return 0;
     let dot = 0, aa = 0, bb = 0;
@@ -88,6 +93,13 @@ export class AgentMemory {
     }
     recallPlace(name) { return this.safe(() => this.store.getLocation(this.world, this.dimension, 'place:' + name)?.position ?? null); }
     placeNames() { return this.safe(() => this.store.locations(this.world, this.dimension, 'place').map(r => r.name.slice(6)), []); }
+    saveShelter(record) {
+        const valid = shelterRecord(record);
+        if (valid) this.safe(() => this.store.putLocation(this.world, this.dimension, 'owned:shelter', 'shelter', valid.origin, valid));
+    }
+    shelter() {
+        return this.safe(() => shelterRecord(this.store.getLocation(this.world, this.dimension, 'owned:shelter')?.metadata));
+    }
     saveStation(record) {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
         this.safe(() => this.store.putLocation(this.world, record.dimension, 'owned:crafting_table', 'station', record.position,
@@ -160,6 +172,7 @@ export class AgentMemory {
                 dimension: goal.memoryDimension || this.dimension, status, reason: textOf(reason),
                 deaths: goal.memoryDeaths || 0,
                 resourceSearch: restoredResourceSearch(goal.resourceSearch),
+                ...(goal.kind === 'shelter' ? { shelter: shelterRecord(goal.shelter) } : {}),
                 step: goal.memoryStep ? { type: goal.memoryStep.type, item: goal.memoryStep.item } : null,
                 updated: this.clock()
             });
@@ -179,7 +192,8 @@ export class AgentMemory {
             reason === 'cancelled' || goal.cancelled ? 'cancelled' : 'blocked';
         this.checkpoint(goal, status, report);
         if (complete) this.record({ kind: 'goal_complete', item: goal.item, position: this.position, verified: true,
-            text: `Verified goal completed: at least ${goal.target} ${goal.item} in inventory at that time.` });
+            text: goal.kind === 'shelter' ? `Verified shelter shell and door at ${JSON.stringify(goal.shelter?.origin)}; entrance crossed, door closed. Recheck world blocks before reuse.` :
+                `Verified goal completed: at least ${goal.target} ${goal.item} in inventory at that time.` });
     }
 
     fingerprint(step) {
@@ -193,6 +207,11 @@ export class AgentMemory {
             }
         }
         const evidence = [cellOf(p), inventory, surroundings];
+        if (step?.position && this.bot.blockAt) {
+            const at = step.position;
+            evidence.push([[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+                .map(([x, y, z]) => this.bot.blockAt(new Vec3(at.x + x, at.y + y, at.z + z))?.stateId ?? 'unknown'));
+        }
         if (step?.type === 'smelt') {
             const furnace = this.bot.managedFurnace;
             const view = furnace?.snapshot;
@@ -202,7 +221,7 @@ export class AgentMemory {
         return createHash('sha256').update(JSON.stringify(evidence)).digest('hex');
     }
     beginStep(goal, step) {
-        const key = `${step.type}:${step.item}:${cellOf(this.position)}`;
+        const key = stepKey(step, this.position);
         const fingerprint = this.fingerprint(step);
         const failure = this.safe(() => this.store.failure(this.world, this.dimension, key, fingerprint));
         if (failure) {
@@ -214,9 +233,11 @@ export class AgentMemory {
     }
     stepResult(goal, step, verified) {
         if (!verified || goal.memoryDimension !== this.dimension) return;
-        this.safe(() => this.store.clearFailure(this.world, this.dimension, `${step.type}:${step.item}:${cellOf(this.position)}`));
-        this.record({ kind: step.type, item: step.item, position: this.position, verified: true,
-            text: `Verified ${step.type} result: inventory increased for ${step.item}. Historical outcome; recheck current inventory.` });
+        this.safe(() => this.store.clearFailure(this.world, this.dimension, stepKey(step, this.position)));
+        const building = ['place', 'clear', 'finish', 'site', 'return'].includes(step.type);
+        this.record({ kind: step.type, item: step.item, position: step.position || this.position, verified: true,
+            text: building ? `Verified shelter ${step.type} for ${step.item} at ${JSON.stringify(step.position || this.position)}. Historical observation; recheck world blocks.` :
+                `Verified ${step.type} result: inventory increased for ${step.item}. Historical outcome; recheck current inventory.` });
         if (step.type === 'gather' && this.position) this.safe(() => this.store.putLocation(this.world, this.dimension,
             `resource:${step.item}:${cellOf(this.position)}`, 'resource', this.position, { item: step.item }));
         this.checkpoint(goal);
@@ -224,7 +245,7 @@ export class AgentMemory {
     failStep(goal, step, reason) {
         const diagnostic = textOf(reason);
         this.safe(() => this.store.fail(this.world, this.dimension,
-            `${step.type}:${step.item}:${cellOf(this.position)}`, this.fingerprint(step), diagnostic));
+            stepKey(step, this.position), this.fingerprint(step), diagnostic));
         this.record({ kind: 'goal_failed', item: step.item, position: this.position, verified: true,
             text: `Observed failure while trying to ${step.type} ${step.item}: ${diagnostic}` });
     }
@@ -236,7 +257,8 @@ export class AgentMemory {
         const goal = this.pendingGoal();
         if (!validGoal(goal) || !(resumable.has(goal.status) || manual && goal.status === 'blocked')) return false;
         if (goal.dimension !== this.dimension || this.agent.recovering_from_death) return false;
-        const command = `!${goal.kind === 'make' ? 'makeGoal' : 'gatherGoal'}(${JSON.stringify(goal.item)}, ${goal.target})`;
+        const command = goal.kind === 'shelter' ? '!shelterGoal' :
+            `!${goal.kind === 'make' ? 'makeGoal' : 'gatherGoal'}(${JSON.stringify(goal.item)}, ${goal.target})`;
         let result;
         this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {} } : goal;
         try { result = await execute(command); }
@@ -292,7 +314,8 @@ export class AgentMemory {
         for (const row of ranked) facts.push(`[${new Date(row.last_seen).toISOString()}] ${row.text}`);
         const lines = [];
         if (saved && !['complete', 'cancelled'].includes(saved.status) && saved.dimension === scope)
-            lines.push(`Saved managed goal (${saved.status}): keep ${saved.target} ${saved.item}. ${saved.reason || ''}`);
+            lines.push(`Saved managed goal (${saved.status}): ${saved.kind === 'shelter' ? 'build shelter at ' + JSON.stringify(saved.shelter?.origin || 'site not yet selected') :
+                'keep ' + saved.target + ' ' + saved.item}. ${saved.reason || ''}`);
         for (const fact of facts) {
             if (lines.length >= 5) break;
             lines.push(textOf(fact));

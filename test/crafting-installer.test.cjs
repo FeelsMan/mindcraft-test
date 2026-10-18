@@ -12,6 +12,7 @@ const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
 const prior = '5f53ba3a859b9b2353af2491bc8ed320fecb377a';
 const published = '760145bcba62295d57b82afdec7ad43e73e1a6dd';
+const nearbyPublished = '4859a384b97e9a2ee27c6989fe7205eed1c3f4d4';
 function gitFile(ref, filename) {
     try { return execFileSync('git', ['show', ref + ':' + filename], {
         cwd: repository, stdio: ['ignore', 'pipe', 'pipe']
@@ -63,6 +64,24 @@ function latest(f) {
 test('the standalone installer embeds the current source, tests and documentation', () => {
     for (const entry of PAYLOAD)
         assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
+});
+
+test('the nearby-interaction build upgrades to shelter support and restores exact source without touching memory', {
+    skip: !gitFile(nearbyPublished, 'package.json')
+}, () => {
+    const f = fixture(nearbyPublished);
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert(fs.existsSync(path.join(f.root, 'src/agent/shelter_goal.js')));
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/commands/actions.js'), 'utf8'), /!shelterGoal/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
 test('the installed crafting reliability build upgrades without changing profiles or saved memory', {
