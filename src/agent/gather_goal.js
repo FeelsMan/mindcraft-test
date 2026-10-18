@@ -4,7 +4,8 @@ export function countItem(bot, item) {
     return bot.inventory.items().filter(x => x.name === item).reduce((n, x) => n + x.count, 0);
 }
 export function gatherCommandAllowed(agent, name) {
-    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!endGoal', '!stop'].includes(name);
+    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!endGoal', '!stop'].includes(name) ||
+        name === '!resetShelter' && agent.gather_goal.kind === 'shelter';
 }
 export async function startGatherGoal(agent, item, target, collect, pickup, { resourceRecovery = false } = {}) {
     if (!Number.isSafeInteger(target) || target < 1 || target > 64)

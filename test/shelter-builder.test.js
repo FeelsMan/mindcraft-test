@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Vec3 from 'vec3';
+import pf from 'mineflayer-pathfinder';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,7 @@ import { cancelGatherGoal } from '../src/agent/gather_goal.js';
 import { modeAllowedDuringGoal, sleep } from '../src/agent/managed_goal.js';
 import { supportedStationSpace } from '../src/agent/station_access.js';
 import { installLocalMemory } from '../src/agent/memory_runtime.js';
+import { safeMiningMovements } from '../src/agent/navigation_policy.js';
 
 function memoryFixture(t, f, root = mkdtempSync(join(tmpdir(), 'mia-shelter-'))) {
     const connections = [];
@@ -137,7 +139,8 @@ test('interruption or a changed support before the packet prevents placement', a
             if (change === 'interrupt') f.bot.interrupt_code = true;
             else f.set(step.position.offset(0, -1, 0), 'air');
         };
-        assert.equal(await placeShelterBlock(f.bot, f.record, step, f.travel, () => !f.bot.interrupt_code), false);
+        if (change === 'interrupt') assert.equal(await placeShelterBlock(f.bot, f.record, step, f.travel, () => !f.bot.interrupt_code), false);
+        else await assert.rejects(placeShelterBlock(f.bot, f.record, step, f.travel, () => true), /support|Support|face|budget/);
         assert.equal(f.calls.filter(c => c[0] === 'place').length, 0); assert.equal(f.controls.sneak, false);
     }
 });
@@ -145,7 +148,8 @@ test('interruption or a changed support before the packet prevents placement', a
 test('a player occupying a planned cell is never walled in by placement', async () => {
     const f = shelterWorld('1.21.4', { oak_planks: 1 }), step = shelterBlueprint(f.record).blocks[0];
     f.bot.entities.player = { position: step.position.offset(0.5, 0, 0.5), width: 0.6, height: 1.8 };
-    assert.equal(await placeShelterBlock(f.bot, f.record, step, f.travel, () => true), false);
+    f.bot.entities.player.username = 'CaptainNeyo';
+    await assert.rejects(placeShelterBlock(f.bot, f.record, step, f.travel, () => true), /occupied by CaptainNeyo/);
     assert.equal(f.calls.filter(c => c[0] === 'place').length, 0);
 });
 
@@ -323,4 +327,59 @@ test('interrupted door crossing settles immediately, retains the door and can be
     f.bot.interrupt_code = false; f.bot.activateBlock = activate;
     await prepareShelterTravel(f.bot, plan.outside, f.travel);
     assert(f.bot.entity.position.floored().equals(plan.outside)); assert.equal(shelterDoor(f.bot, f.record).open, false);
+});
+
+test('actual pathfinder descends one-block steps but rejects a two-block drop in a closed corridor', () => {
+    for (const drop of [1, 2]) {
+        const f = shelterWorld();
+        const blockAt = p => {
+            const cell = p.floored(), floor = cell.x === 0 ? 65 : 65 - drop;
+            return f.make(cell, cell.z !== 0 || cell.x < 0 || cell.x > 1 || cell.y < floor ? 'stone' : 'air');
+        };
+        f.bot.blockAt = f.bot.world.getBlock = blockAt;
+        f.bot.entity.position = new Vec3(0.5, 65, 0.5);
+        const route = f.bot.pathfinder.getPathTo(safeMiningMovements(f.travel.movements()),
+            new pf.goals.GoalBlock(1, 65 - drop, 0), 100);
+        assert.equal(route.status, drop === 1 ? 'success' : 'noPath');
+        if (drop === 1) {
+            assert.deepEqual(route.path.map(n => [n.x, n.y, n.z]), [[1, 64, 0]]);
+            assert(route.path.every(n => !n.toBreak.length && !n.toPlace.length));
+        }
+    }
+});
+
+test('an already-reached work cell with Mia leaning across its edge selects a clear approach', async () => {
+    const f = shelterWorld('26.3', { oak_planks: 1 }), plan = shelterBlueprint(f.record);
+    // Same prefix as the live failure, translated to a fixture origin.
+    for (const step of plan.blocks.slice(0, 5)) f.set(step.position, step.item);
+    const step = plan.blocks[5]; assert.deepEqual(step.position, new Vec3(3, 64, 0));
+    f.bot.entity.position = new Vec3(2.9, 64, 0.5);
+    assert(await placeShelterBlock(f.bot, f.record, step, f.travel, () => true));
+    assert.equal(f.bot.blockAt(step.position).name, 'oak_planks');
+    assert.equal(f.calls.filter(c => c[0] === 'place').length, 1);
+    assert(f.calls.some(c => c[0] === 'move'), 'The body must move clear; a cell-only arrival is insufficient');
+});
+
+test('drift into a target while equipping triggers another approach before the single placement packet', async () => {
+    const f = shelterWorld('1.21.4', { oak_planks: 1 }), step = shelterBlueprint(f.record).blocks[0];
+    const equip = f.bot.equip, place = f.bot.placeBlock;
+    let equips = 0, aimed = false;
+    f.bot.equip = async item => {
+        await equip(item);
+        if (++equips === 1) f.bot.entity.position = step.position.offset(0.5, 0, 0.5);
+    };
+    f.bot.lookAt = async (at, force) => { assert.equal(force, true); f.bot.lastLook = at; aimed = true; };
+    f.bot.placeBlock = async (...args) => { assert(aimed); return place(...args); };
+    assert(await placeShelterBlock(f.bot, f.record, step, f.travel, () => true));
+    assert.equal(equips, 2);
+    assert.equal(f.calls.filter(c => c[0] === 'place').length, 1);
+    assert(f.calls.some(c => c[0] === 'log' && /drifted/.test(c[1])));
+});
+
+test('a finished roof has a real safe descent to the entrance with no digging or scaffolding', async () => {
+    const f = shelterWorld('26.3'); built(f);
+    f.bot.entity.position = new Vec3(2.5, 67, 2.5);
+    assert(await enterAndVerifyShelter(f.bot, f.record, f.travel, () => true));
+    assert(f.bot.entity.position.floored().equals(shelterBlueprint(f.record).inside));
+    assert.equal(f.calls.filter(c => c[0] === 'dig' || c[0] === 'place').length, 0);
 });

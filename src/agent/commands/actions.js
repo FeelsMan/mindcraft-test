@@ -1,5 +1,5 @@
 import { startMakeGoal } from '../make_goal.js';
-import { startShelterGoal } from '../shelter_goal.js';
+import { startShelterGoal, resetShelterSite } from '../shelter_goal.js';
 import { hasReusableTable } from '../crafting_station.js';
 import { getItemCraftingRecipes } from '../../utils/mcdata.js';
 import { getNearestBlock } from '../library/world.js';
@@ -52,6 +52,11 @@ function managedSkills(requestContext) {
 
 export const actionsList = [
     {
+        name: '!resetShelter',
+        description: 'Abandon the saved shelter site in the current world/dimension so the next !shelterGoal chooses a new one. Cancels an active shelter build. Leaves placed blocks and experience history intact; removes the home waypoint only if it belongs to that site. Use when abandoning this site, not for an ordinary retry.',
+        perform: resetShelterSite
+    },
+    {
         name: '!shelterGoal',
         description: 'Build or finish my fixed 5x5 oak shelter with a 3x3 interior, two-block headroom, roof, working door and three outside access-step blocks. Finds a reachable level, clear 7x7 work area nearby; clears only small plants, gathers calculated supplies, verifies each block and tests the entrance. Reuses my saved site and partial build, pauses for safety and saves home after final checks. No terrain excavation or filling. Use !endGoal to cancel or !resumeGoal after an unresolved failure.',
         perform: (agent, requestContext = null) => startShelterGoal(agent, managedSkills(requestContext))
@@ -67,7 +72,7 @@ export const actionsList = [
     },
     {
         name: '!resumeGoal',
-        description: 'Resume the saved managed crafting, collection or shelter goal in the current world and dimension, replanning from live inventory/blocks and renewing bounded exploration attempts. Recently failing gathering areas are skipped. Cancelled/completed goals are not restarted.',
+        description: 'Resume the saved managed crafting, collection or shelter goal in the current world and dimension, replanning from live inventory/blocks and renewing bounded exploration attempts. Explicit resume gives the first blocked step one fresh bounded attempt; automatic recovery still observes cooldowns. Recently failing gathering areas are skipped. Cancelled/completed goals are not restarted.',
         perform: async (agent, requestContext = null) => await agent.resumeMemoryGoal(true, requestContext) ? 'Saved goal resumed from current inventory.' :
             'No resumable managed goal in this world/dimension, or a goal is already active.'
     },

@@ -1,6 +1,6 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { captureInventory, inventoryContext, groundInventory } from '../src/agent/live_inventory.js';
+import { captureInventory, captureWorld, inventoryContext, worldContext, groundInventory, inventoryChanged } from '../src/agent/live_inventory.js';
 import { reportManagedGoal } from '../src/agent/managed_goal_report.js';
 
 mock.module(new URL('../src/models/_model_map.js', import.meta.url).href, {
@@ -155,4 +155,63 @@ test('unrelated pickups during persistence do not suppress an accurate target re
     f.agent.history.save = async () => { f.stock.apple = 1; };
     assert.equal(await reportManagedGoal(f.agent, receipt()), true);
     assert.equal(f.messages.length, 1);
+});
+
+test('position, aim and nearby blocks are refreshed for each decision even when the profile has no stats placeholder', async () => {
+    const f = fixture(), seen = [], calls = [];
+    let block = { name: 'furnace', position: { x: 5, y: 64, z: 2 } };
+    f.agent.bot.game = { dimension: 'overworld' };
+    f.agent.bot.entity = { position: { x: 1, y: 64, z: 2 }, yaw: 0, pitch: 0 };
+    f.agent.bot.health = 0; f.agent.bot.food = 0;
+    f.agent.bot.registry = { blocksByName: { furnace: { id: 1 }, iron_ore: { id: 2 } } };
+    f.agent.bot.blockAtCursor = range => { assert.equal(range, 4); return block; };
+    f.agent.bot.findBlocks = options => {
+        calls.push(options); return options.matching.includes(1) && block ? [block.position] : [];
+    };
+    f.agent.bot.blockAt = () => block;
+    const fake = promptFixture(f, async messages => {
+        seen.push(messages.at(-1).content);
+        // Ordinary movement while a response is generated must not starve
+        // decisions with endless retries. Actions recheck their actual routes.
+        f.agent.bot.entity.position.x++;
+        return 'Ready';
+    });
+    const history = [{ role: 'system', content: 'Historical: furnace at 999, 60, 999' }];
+    await Prompter.prototype.promptConvo.call(fake, history);
+    block = null;
+    f.agent.bot.entity.position = { x: 7, y: 65, z: 3 };
+    await Prompter.prototype.promptConvo.call(fake, history);
+    assert.equal(seen.length, 2);
+    assert.match(seen[0], /feet position: 1, 64, 2/);
+    assert.match(seen[0], /furnace at 5, 64, 2/);
+    assert.match(seen[0], /Health: 0; hunger: 0/);
+    assert.match(seen[1], /feet position: 7, 65, 3/);
+    assert.doesNotMatch(seen[1], /furnace at 5, 64, 2/);
+    assert.match(seen[1], /no block hit/);
+    assert.match(seen[1], /reachability unproven/);
+    assert(calls.every(c => c.maxDistance === 12 && c.count <= 8));
+    assert.equal(history.length, 1, 'Observations must not accumulate in persistent history');
+});
+
+test('dimension changes during generation discard the stale decision even with unchanged inventory', async () => {
+    const f = fixture(); f.agent.bot.game = { dimension: 'overworld' };
+    let calls = 0;
+    const fake = promptFixture(f, async messages => {
+        if (++calls === 1) { f.agent.bot.game.dimension = 'the_nether'; return 'Use the overworld table'; }
+        assert.match(messages.at(-1).content, /Dimension: the_nether/);
+        return 'Reassess here';
+    });
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Reassess here');
+    assert.equal(calls, 2);
+});
+
+test('unknown position and failed block observations stay unknown instead of becoming fabricated empty terrain', () => {
+    const missing = worldContext(captureWorld({}));
+    assert.match(missing, /feet position: unavailable/);
+    assert.match(missing, /Scan unavailable/);
+    const bot = { entity: { position: { x: 1, y: 64, z: 2 } },
+        blockAtCursor() { throw Error('unloaded'); } };
+    assert.match(worldContext(captureWorld(bot)), /aimed at within 4 blocks: unavailable/);
+    const before = captureInventory({ inventory: { items: () => [] }, game: { dimension: 'overworld' } });
+    assert(inventoryChanged({ inventory: { items: () => [] }, game: { dimension: 'the_nether' } }, before));
 });

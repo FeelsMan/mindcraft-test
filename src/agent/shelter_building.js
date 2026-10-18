@@ -96,22 +96,30 @@ export async function findShelterSite(bot, api) {
     return null;
 }
 
-function overlaps(bot, p, height = 1) {
-    return [bot.entity, ...Object.values(bot.entities || {}).filter(e => e !== bot.entity && e.height > 0 &&
-        !['item', 'experience_orb'].includes(e.name) && e.type !== 'orb')]
-        .some(e => e.position && e.position.x + (e.width || 0.6) / 2 > p.x && e.position.x - (e.width || 0.6) / 2 < p.x + 1 &&
-            e.position.z + (e.width || 0.6) / 2 > p.z && e.position.z - (e.width || 0.6) / 2 < p.z + 1 &&
-            e.position.y < p.y + height && e.position.y + (e.height || 1.8) > p.y);
+function overlaps(entity, p, height = 1, horizontalMargin = 0) {
+    const at = entity.position, halfWidth = (entity.width || 0.6) / 2 + horizontalMargin;
+    return at && at.x + halfWidth > p.x && at.x - halfWidth < p.x + 1 &&
+        at.z + halfWidth > p.z && at.z - halfWidth < p.z + 1 &&
+        at.y < p.y + height && at.y + (entity.height || 1.8) > p.y;
 }
 
-function placementGoal(bot, p, item, baseY) {
+function otherOccupant(bot, p, height) {
+    return Object.values(bot.entities || {}).find(e => e !== bot.entity && e.height > 0 &&
+        !['item', 'experience_orb'].includes(e.name) && e.type !== 'orb' && overlaps(e, p, height));
+}
+
+function placementGoal(bot, p, item, baseY, excluded = new Set()) {
     if (!air(bot.blockAt(p)) || item === 'oak_door' && !air(bot.blockAt(p.offset(0, 1, 0)))) return null;
     const face = new pf.goals.GoalPlaceBlock(p, bot.world, { range: 4, LOS: true,
         ...(item === 'oak_door' ? { faces: [new Vec3(0, -1, 0)] } : {}) });
     const points = [];
     for (let dy = 0; dy <= 3; dy++) for (let x = -4; x <= 4; x++) for (let z = -4; z <= 4; z++) {
         const at = new Vec3(p.x + x, baseY + dy, p.z + z);
-        if (safeFeet(bot, at) && face.isEnd(at) &&
+        // GoalBlock accepts a cell, not a centered player hitbox. Keep half a
+        // cell of horizontal arrival tolerance where the body shares target
+        // height; overhead placement from inside still remains available.
+        if (!excluded.has(key(at)) && !overlaps({ width: bot.entity.width, height: bot.entity.height, position: at.offset(0.5, 0, 0.5) },
+            p, item === 'oak_door' ? 2 : 1, 0.5) && safeFeet(bot, at) && face.isEnd(at) &&
             (item !== 'oak_door' || at.z > p.z && at.x === p.x)) points.push(at);
     }
     if (!points.length) return null;
@@ -133,36 +141,75 @@ async function observed(bot, predicate, active, timeoutMs) {
     return false;
 }
 
-export async function placeShelterBlock(bot, record, step, api, active, { verifyMs = 1500 } = {}) {
-    const p = step.position, itemName = step.item;
+export async function placeShelterBlock(bot, record, step, api, active, { verifyMs = 1500, approachMs = 15000 } = {}) {
+    const p = step.position, itemName = step.item, height = itemName === 'oak_door' ? 2 : 1;
     const matches = () => itemName === 'oak_door' ? shelterDoor(bot, record).present : bot.blockAt(p)?.name === itemName;
+    const excluded = new Set(), deadline = Date.now() + approachMs;
+    let lastReason = 'No usable work position remained.';
+    const inspect = () => {
+        const block = bot.blockAt(p);
+        if (!air(block)) throw new Error('Shelter target ' + p + ' changed to ' + (block?.name || 'unloaded') + '; existing blocks were retained.');
+        if (itemName === 'oak_door' && !air(bot.blockAt(p.offset(0, 1, 0))))
+            throw new Error('Shelter doorway upper cell is obstructed or unloaded at ' + p.offset(0, 1, 0) + '.');
+        const occupant = otherOccupant(bot, p, height);
+        if (occupant) throw new Error('Shelter target ' + p + ' is occupied by ' +
+            (occupant.username || occupant.name || occupant.type || 'another entity') + ' at ' + occupant.position + '; move clear before resuming.');
+    };
+    const retry = reason => {
+        excluded.add(key(bot.entity.position.floored()));
+        lastReason = reason + ' Actual feet: ' + bot.entity.position + '.';
+        api.log?.('Shelter approach retry: ' + lastReason);
+    };
+    for (let approach = 0; approach < 3 && Date.now() < deadline; approach++) {
+        if (!active()) return false;
+        if (matches()) return true;
+        inspect();
+        const work = placementGoal(bot, p, itemName, record.origin.y, excluded);
+        if (!work) throw new Error('No supported position with a visible placement face at ' + p + '. ' + lastReason);
+        if (!await walkSafely(bot, p, { ...api, goal: work.goal, timeoutMs: Math.max(1, deadline - Date.now()) })) {
+            if (!active()) return false;
+            throw new Error('Safe route did not reach a shelter work position for ' + p + '; actual feet: ' + bot.entity.position + '.');
+        }
+        if (!active()) return false;
+        if (matches()) return true;
+        inspect();
+        if (!work.goal.isEnd(bot.entity.position.floored()) || overlaps(bot.entity, p, height)) {
+            retry('Mia overlaps the target or left the planned work cell.'); continue;
+        }
+        const item = bot.inventory.items().find(i => i.name === itemName);
+        if (!item) throw new Error('Missing ' + itemName + ' in live inventory.');
+        await bot.equip(item, 'hand');
+        if (!active()) return false;
+        if (matches()) return true;
+        inspect();
+        if (overlaps(bot.entity, p, height)) { retry('Mia drifted into the placement target while equipping.'); continue; }
+        const fresh = placementGoal(bot, p, itemName, record.origin.y, excluded);
+        const hit = fresh?.face.getFaceAndRef(bot.entity.position.offset(0, 1.6, 0));
+        if (!hit) { retry('The placement face is not visible from Mia\'s actual eye position.'); continue; }
+        const support = bot.blockAt(hit.ref), sneaking = Boolean(bot.getControlState?.('sneak'));
+        let changed = false, response = '';
+        try {
+            bot.setControlState('sneak', true);
+            await bot.lookAt(hit.to, true);
+            if (!active()) return false;
+            if (matches()) return true;
+            inspect();
+            const again = placementGoal(bot, p, itemName, record.origin.y, excluded)?.face.getFaceAndRef(bot.entity.position.offset(0, 1.6, 0));
+            if (overlaps(bot.entity, p, height) || !again || !again.ref.equals(hit.ref) || !again.face.equals(hit.face)) changed = true;
+            else try { await bot.placeBlock(support, hit.face.scaled(-1)); }
+            catch (error) { response = String(error.message || error).slice(0, 240); api.log?.('Shelter placement response: ' + response); }
+        } finally { bot.setControlState('sneak', sneaking); }
+        if (changed) { retry('Support, visibility or body clearance changed before the placement packet.'); continue; }
+        // Once a packet is sent, never try another cell/packet on an ambiguous
+        // response. Wait for real world evidence, then let the next goal step
+        // reconcile a late update against this exact coordinate.
+        if (await observed(bot, matches, active, verifyMs)) return true;
+        if (!active()) return false;
+        throw new Error('No verified ' + itemName + ' at ' + p + '; actual feet: ' + bot.entity.position +
+            (response ? '; server response: ' + response : '') + '; site retained for rechecking.');
+    }
     if (!active()) return false;
-    if (matches()) return true;
-    const work = placementGoal(bot, p, itemName, record.origin.y);
-    if (!work) throw new Error('No supported position with a visible placement face at ' + p + '.');
-    if (!await walkSafely(bot, p, { ...api, goal: work.goal })) return false;
-    if (!active() || !work.goal.isEnd(bot.entity.position.floored()) || overlaps(bot, p, itemName === 'oak_door' ? 2 : 1)) return false;
-    const item = bot.inventory.items().find(i => i.name === itemName);
-    if (!item) throw new Error('Missing ' + itemName + ' in live inventory.');
-    await bot.equip(item, 'hand');
-    if (!active() || !air(bot.blockAt(p)) || overlaps(bot, p, itemName === 'oak_door' ? 2 : 1)) return false;
-    const fresh = placementGoal(bot, p, itemName, record.origin.y);
-    const hit = fresh?.face.getFaceAndRef(bot.entity.position.offset(0, 1.6, 0));
-    if (!hit || itemName === 'oak_door' && !air(bot.blockAt(p.offset(0, 1, 0)))) return false;
-    const support = bot.blockAt(hit.ref), sneaking = Boolean(bot.getControlState?.('sneak'));
-    try {
-        bot.setControlState('sneak', true);
-        await bot.lookAt(hit.to);
-        if (!active() || !air(bot.blockAt(p)) || overlaps(bot, p, itemName === 'oak_door' ? 2 : 1)) return false;
-        const again = placementGoal(bot, p, itemName, record.origin.y)?.face.getFaceAndRef(bot.entity.position.offset(0, 1.6, 0));
-        if (!again || !again.ref.equals(hit.ref) || !again.face.equals(hit.face) ||
-            itemName === 'oak_door' && !air(bot.blockAt(p.offset(0, 1, 0)))) return false;
-        await bot.placeBlock(support, hit.face.scaled(-1));
-    } catch (error) { api.log?.('Shelter placement response: ' + error.message); }
-    finally { bot.setControlState('sneak', sneaking); }
-    if (await observed(bot, matches, active, verifyMs)) return true;
-    if (active()) throw new Error('No verified ' + itemName + ' at ' + p + '; site retained for rechecking.');
-    return false;
+    throw new Error('Shelter approach budget exhausted for ' + p + '. ' + lastReason);
 }
 
 function plantReachable(bot, p, at) {
@@ -189,7 +236,7 @@ export async function clearShelterPlant(bot, record, step, api, active, { verify
     if (!await walkSafely(bot, p, { ...api, goal }) || !active()) return false;
     const current = bot.blockAt(p);
     if (!plants.has(current?.name) || !plantReachable(bot, p, bot.entity.position.floored())) return air(current);
-    await bot.dig(current);
+    await bot.dig(current, true);
     return observed(bot, () => air(bot.blockAt(p)), active, verifyMs);
 }
 
@@ -203,7 +250,7 @@ async function setShelterDoor(bot, record, open, active, verifyMs) {
     const sneak = Boolean(bot.getControlState?.('sneak'));
     try {
         bot.setControlState('sneak', false);
-        await bot.lookAt(plan.door.offset(0.5, 0.5, 0.5));
+        await bot.lookAt(plan.door.offset(0.5, 0.5, 0.5), true);
         if (!active()) return false;
         await bot.activateBlock(bot.blockAt(plan.door));
     } finally { bot.setControlState('sneak', sneak); }

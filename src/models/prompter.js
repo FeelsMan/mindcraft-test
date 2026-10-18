@@ -1,4 +1,4 @@
-import { captureInventory, groundInventory, inventoryChanged } from '../agent/live_inventory.js';
+import { captureInventory, captureWorld, groundInventory, inventoryChanged } from '../agent/live_inventory.js';
 import { readFileSync, mkdirSync, writeFileSync} from 'fs';
 import { Examples } from '../utils/examples.js';
 import { getCommandDocs } from '../agent/commands/index.js';
@@ -249,10 +249,10 @@ export class Prompter {
 
             try {
                 const inventory = captureInventory(this.agent.bot);
-                const grounded = groundInventory(messages, inventory);
+                const grounded = groundInventory(messages, inventory, captureWorld(this.agent.bot));
                 generation = await this.chat_model.sendRequest(grounded, prompt);
                 if (inventoryChanged(this.agent.bot, inventory)) {
-                    console.log('[Mia inventory] Inventory changed during generation; refreshing the decision.');
+                    console.log('[Mia live state] Inventory or dimension changed during generation; refreshing the decision.');
                     continue;
                 }
                 if (typeof generation !== 'string') {

@@ -429,3 +429,63 @@ test('configuration preserves other options and rejects invalid IDs before writi
     assert.throws(() => configureMemory(root, 'Mia', undefined));
     assert.deepEqual(readFileSync(filename), before);
 });
+
+test('explicit resume renews one blocked step while automatic recovery and repeated failures remain bounded', async t => {
+    const f = fixture(t, undefined, { oak_log: 1 });
+    const old = { kind: 'make', item: 'oak_planks', target: 4 }, step = { type: 'craft', item: 'oak_planks' };
+    f.memory.beginGoal(old); f.memory.beginStep(old, step); f.memory.failStep(old, step, 'Previous crafting failure');
+    f.memory.checkpoint(old, 'blocked');
+    assert.equal(await f.memory.resume(() => assert.fail('Automatic recovery bypassed a blocked goal')), false);
+    let attempts = 0;
+    f.api.craft = async () => { attempts++; return false; };
+    assert(await f.memory.resume(() => startMakeGoal(f.agent, 'oak_planks', 4, f.api), { manual: true }));
+    await f.agent.gather_goal.done;
+    assert.equal(attempts, 2); assert.equal(f.memory.pendingGoal().status, 'blocked');
+    await startMakeGoal(f.agent, 'oak_planks', 4, f.api);
+    assert.match(await f.agent.gather_goal.done, /cooldown/);
+    assert.equal(attempts, 2, 'The manual grant cannot leak into another start or restart');
+    f.api.craft = async () => { attempts++; f.stock.oak_log--; f.stock.oak_planks = 4; };
+    assert(await f.memory.resume(() => startMakeGoal(f.agent, 'oak_planks', 4, f.api), { manual: true }));
+    await f.agent.gather_goal.done;
+    assert.equal(f.memory.pendingGoal().status, 'complete');
+    assert.equal(attempts, 3);
+});
+
+test('a changed work position within the same resource cell or changed target block state invalidates a spatial failure', t => {
+    const f = fixture(t), goal = { kind: 'shelter', item: 'shelter', target: 1 };
+    const step = { type: 'place', item: 'oak_planks', position: new Vec3(3, 64, 1) };
+    let stateId = 0;
+    f.bot.blockAt = p => ({ name: 'air', stateId: p.x === 3 && p.y === 64 && p.z === 1 ? stateId : 0 });
+    f.memory.beginGoal(goal); f.memory.beginStep(goal, step); f.memory.failStep(goal, step, 'No visible face');
+    assert.throws(() => f.memory.beginStep(goal, step), /cooldown/);
+    f.bot.entity.position.x = 2;
+    assert.doesNotThrow(() => f.memory.beginStep(goal, step));
+    f.bot.entity.position.x = 1;
+    assert.throws(() => f.memory.beginStep(goal, step), /cooldown/);
+    stateId = 5;
+    assert.doesNotThrow(() => f.memory.beginStep(goal, step));
+});
+
+test('resetting a shelter site retains historical experiences and unrelated homes/worlds/dimensions', t => {
+    const f = fixture(t), record = { version: 1, origin: { x: 0, y: 64, z: 0 } };
+    f.memory.record({ kind: 'gather', item: 'oak_log', text: 'Verified old oak collection', verified: true });
+    f.memory.saveShelter(record); f.memory.rememberPlace('home', { x: 2, y: 64, z: 2 });
+    f.memory.rememberPlace('mine', { x: 20, y: 64, z: 20 });
+    f.bot.game.dimension = 'the_nether';
+    f.memory.saveShelter(record); f.memory.rememberPlace('home', { x: 2, y: 64, z: 2 });
+    f.bot.game.dimension = 'overworld';
+    f.memory.beginGoal({ kind: 'shelter', item: 'shelter', target: 1, shelter: record });
+    assert(f.memory.resetShelter());
+    assert.equal(f.memory.shelter(), null); assert.equal(f.memory.recallPlace('home'), null);
+    assert.deepEqual(f.memory.recallPlace('mine'), { x: 20, y: 64, z: 20 });
+    assert.equal(f.memory.pendingGoal().status, 'cancelled');
+    assert(f.memory.store.candidates(f.memory.world, 'overworld', 'oak_log').some(r => /Verified old oak/.test(r.text)));
+    f.bot.game.dimension = 'the_nether';
+    assert.deepEqual(f.memory.shelter(), record); assert.deepEqual(f.memory.recallPlace('home'), { x: 2, y: 64, z: 2 });
+    f.memory.rememberPlace('home', { x: 100, y: 70, z: 100 });
+    assert(f.memory.resetShelter());
+    assert.deepEqual(f.memory.recallPlace('home'), { x: 100, y: 70, z: 100 }, 'An independently saved home is retained');
+    const other = fixture(t, f.root, {}, { config: { world_id: 'other-world', embeddings: false } });
+    other.memory.saveShelter(record); assert.deepEqual(other.memory.shelter(), record);
+    assert.equal(f.memory.shelter(), null);
+});

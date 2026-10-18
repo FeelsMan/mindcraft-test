@@ -50,3 +50,26 @@ test('an unsupported dimension cannot start construction', async () => {
     assert.match(await executeCommand(fixture.agent, '!shelterGoal'), /Overworld only/);
     assert.equal(fixture.agent.gather_goal, undefined);
 });
+
+test('reset command cancels an in-flight shelter action, clears the working site and leaves existing blocks', async () => {
+    fixture = shelterWorld();
+    fixture.bot.shelterSite = { dimension: 'overworld', record: fixture.record };
+    fixture.set(fixture.bot.entity.position.offset(5, 0, 0), 'oak_planks');
+    assert.match(await executeCommand(fixture.agent, '!shelterGoal'), /Shelter goal started/);
+    while (!fixture.agent.actions.executing) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.match(await executeCommand(fixture.agent, '!resetShelter'), /Shelter site reset/);
+    assert.equal(fixture.agent.gather_goal.active, false);
+    assert.equal(fixture.bot.shelterSite, undefined);
+    assert.equal(fixture.calls.filter(c => c[0] === 'dig' || c[0] === 'place').length, 0);
+    assert.equal(fixture.bot.blockAt(fixture.bot.entity.position.offset(5, 0, 0)).name, 'oak_planks');
+    assert.match(getCommandDocs(fixture.agent), /!resetShelter/);
+});
+
+test('reset cannot interrupt a different managed goal or accept unintended arguments', async () => {
+    fixture = shelterWorld();
+    fixture.agent.gather_goal = { active: true, kind: 'make' };
+    assert.match(await executeCommand(fixture.agent, '!resetShelter'), /managed goal is active/);
+    assert.equal(fixture.agent.gather_goal.active, true);
+    delete fixture.agent.gather_goal;
+    assert.match(await executeCommand(fixture.agent, '!resetShelter("all memory")'), /requires 0 args/);
+});

@@ -44,7 +44,7 @@ test('navigation proves arrival and always disables digging, scaffolding and lon
     const f = botFixture();
     assert(await walkSafely(f.bot, position(10), { movements: f.movements }));
     assert.equal(f.bot.navigationRecovery, undefined);
-    assert(f.policies.every(p => p.canDig === false && p.maxDropDown === 1 && p.scafoldingBlocks.length === 0));
+    assert(f.policies.every(p => p.canDig === false && p.maxDropDown === 2 && p.scafoldingBlocks.length === 0));
     f.bot.pathfinder.goto = async () => {}; // Upstream goto can resolve an empty path.
     assert.equal(await walkSafely(f.bot, position(40), { movements: f.movements }), false);
 });

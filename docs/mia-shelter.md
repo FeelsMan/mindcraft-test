@@ -27,14 +27,14 @@ placement call returning successfully is not sufficient evidence.
 
 ## Install in an existing Mia folder
 
-Stop Mindcraft, replace the previous standalone installer with the current
-[`mia-crafting-reliability-fix.cjs`](../scripts/mia-crafting-reliability-fix.cjs),
+Stop Mindcraft and download the distinctly named current installer,
+[`mia-world-awareness-fix.cjs`](../scripts/mia-world-awareness-fix.cjs),
 and run it from `D:\mai\mindcraft`:
 
 ```powershell
-node .\mia-crafting-reliability-fix.cjs --check
-node .\mia-crafting-reliability-fix.cjs --apply
-node .\mia-crafting-reliability-fix.cjs --test
+node .\mia-world-awareness-fix.cjs --check
+node .\mia-world-awareness-fix.cjs --apply
+node .\mia-world-awareness-fix.cjs --test
 node main.js --profiles .\mia-qwen.json
 ```
 
@@ -61,7 +61,10 @@ code and use `npm.cmd run test:goals` for the complete suite.
 Next, repeat in a separate test world/world ID from an empty inventory to test
 the complete collection/crafting path. The saved site is intentionally reused
 in the same world; moving Mia and sending the command again is not a request to
-start a second house.
+start a second house. To abandon a bad site, send `!resetShelter`, move to another
+level area, then send `!shelterGoal`. Reset cancels a current shelter build and
+removes only its working site and matching `home` waypoint in this world and
+dimension. Placed blocks, other waypoints, stations and experience history remain.
 
 ## Interruptions and honest failures
 
@@ -79,7 +82,8 @@ start a second house.
   remain; cancellation does not dismantle a partial house or automatically resume.
 - Unknown/unloaded ground, blocked routes, insufficient resource progress or two
   unverified attempts stop the goal with its site retained. Address the cause,
-  then use `!resumeGoal`; remembered failure cooldowns still apply. Existing
+  then use `!resumeGoal`. An explicit resume renews the first blocked step's
+  bounded attempt; automatic restart/recovery still observes failure cooldowns. Existing
   mismatched blocks are not demolished to force the blueprint through.
 - A complete shell is insufficient if the door is partial, incorrectly oriented,
   cannot be opened/crossed, or cannot be closed. `home` is recorded only after
@@ -101,3 +105,28 @@ Windows runs the interaction and shelter tests using Node **22.23.2**.
 Live Minecraft building remains the final check for server timing, physics and
 terrain variations. Start with the supplied-material test above, then test
 resource gathering and restarting during a partial build.
+
+## Placement and awareness update
+
+Work positions allow for real arrivals near block edges rather than assuming
+Mia is centered. Body overlap, other entities, visibility and support are checked
+again after moving/equipping/aiming. Up to three alternate approaches share a
+15-second budget; after a placement packet, the builder waits for observed blocks
+instead of blindly sending another packet. Failures include the target, actual
+feet position and the failed guard. Completed cells are re-read on resume.
+
+The safe movement policy now permits actual one-block steps down. Upstream
+pathfinder counts to the support block: a setting of 1 accidentally prevented
+ordinary cardinal descents. The corrected setting is tested against a two-block
+drop that must still be rejected, and against descent from a finished roof.
+
+Each model decision now includes native position, dimension, health/hunger,
+yaw/pitch, the aimed-at block within four blocks and a bounded sample of loaded
+workstations/ores within twelve blocks. These are current observations, not
+screenshot vision. Nearby does not imply reachable. Ordinary movement during
+model generation does not cause retry starvation; an inventory or dimension
+change does discard the stale decision. Actions verify their world state again.
+
+For the first live retry, keep the partial site and use `!resumeGoal`. Only use
+`!resetShelter` if you want to abandon that site. The automatic tests simulate
+packet/physics I/O; server timing and live movement still need this gameplay check.

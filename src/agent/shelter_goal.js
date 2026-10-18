@@ -1,5 +1,5 @@
 import { planMake, inventoryCounts } from './make_goal.js';
-import { countItem } from './gather_goal.js';
+import { countItem, cancelGatherGoal } from './gather_goal.js';
 import { actionFailureDetail, collectAndVerify, waitForGoalTurn, waitForInventory } from './managed_goal.js';
 import { shelterBlueprint, shelterRecord } from './shelter_blueprint.js';
 import { inspectShelter, findShelterSite, placeShelterBlock, clearShelterPlant, enterAndVerifyShelter } from './shelter_building.js';
@@ -138,4 +138,17 @@ export async function startShelterGoal(agent, api) {
     })();
     goal.done.catch(error => console.error('Could not save shelter report:', error));
     return 'Shelter goal started: a 5x5 oak shelter, 3x3 interior with two-block headroom, roof and working door. Materials and actual block updates will be verified. Use !endGoal to cancel.';
+}
+
+export async function resetShelterSite(agent) {
+    if (agent.gather_goal?.active && agent.gather_goal.kind !== 'shelter')
+        return 'A different managed goal is active. Use !endGoal before resetting the shelter site.';
+    if (agent.gather_goal?.active) await cancelGatherGoal(agent);
+    const memory = agent.local_memory;
+    if (memory?.enabled && !memory.resetShelter())
+        return 'Could not reset the saved shelter site; its record was retained.';
+    const dimension = String(agent.bot.game?.dimension ?? 'unknown');
+    if (agent.bot.shelterSite?.dimension === dimension) delete agent.bot.shelterSite;
+    await agent.history.save();
+    return 'Shelter site reset in this world/dimension. Placed blocks and history remain; a matching home waypoint was cleared. Move near another level area and use !shelterGoal to choose a new site.';
 }

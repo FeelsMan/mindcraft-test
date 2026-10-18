@@ -35,7 +35,7 @@ test('urgent safety and ordinary non-goal travel keep access to emergency buildi
 test('stone approaches cannot dig, pillar, bridge or drop more than one block', () => {
     const moves = safeMiningMovements(navigationFixture().movements());
     assert.equal(moves.canDig, false);
-    assert.equal(moves.maxDropDown, 1);
+    assert.equal(moves.maxDropDown, 2); // Upstream counts the support block.
     assert.equal(moves.allowParkour, false);
     assert.deepEqual(moves.scafoldingBlocks, []);
 });

@@ -58,7 +58,7 @@ recovery works even when loading old conversation history is disabled.
 | Resource area | The position where managed collection produced a verified inventory increase. This is a hint for later planning; remaining resources must be observed again. |
 | Crafting table | Exact coordinates of a table placed and verified by Mia's crafting routine. Restored tables are checked against loaded blocks before use. Unloaded chunks remain unknown. |
 | Named place/death position | Actual observed coordinates, scoped to the current world and dimension. Unscoped legacy JSON places are retained but are not automatically imported. |
-| Failed attempt | No verified progress after bounded retries, or an action timeout. The next identical attempt in that area has a two-minute cooldown. Moving to another eight-block area, changing inventory, or changing sampled nearby blocks invalidates the old failure fingerprint. |
+| Failed attempt | No verified progress after bounded retries, or an action timeout. The next identical attempt in that area has a two-minute cooldown. Moving to another eight-block resource area, changing inventory, or changing sampled nearby blocks invalidates the old failure fingerprint. Spatial work also uses exact foot-cell coordinates and target-neighbor block states, so a different approach within that area can be retried. |
 
 Outcomes are deduplicated by kind, item, and area. The store retains at most
 5,000 experience records after periodic pruning and 500 resource areas; it starts
@@ -84,7 +84,7 @@ summaries, and screenshots are not ingested into this database.
   dimension. A different world never restores it.
 - `!stop` and `!endGoal` persist cancellation. Completed/cancelled goals are never
   automatically resumed. Repeated failures become blocked goals and require a
-  new instruction or `!resumeGoal`; their cooldowns still apply.
+  new instruction or `!resumeGoal`. Explicit resume renews one blocked step's bounded attempt; automatic recovery still observes cooldowns. Failed gather areas are still skipped during managed resource exploration.
 - `!memory` shows the current scope, saved target/status, and historical locations.
   It is available while a managed goal is active. `!resumeGoal` retries the saved
   unfinished target after you have addressed a blockage.
@@ -149,3 +149,23 @@ If a restore succeeds but collection prints `MaxListenersExceededWarning`, see
 the [restart and cancellation follow-up](mia-lifecycle.md). It fixes repeated
 cancel requests and coordinates parent process replacement without changing
 the database or world ID.
+
+## Live state, retries and site corrections
+
+Every conversational model request receives a fresh native world observation
+alongside current inventory, including position/dimension, aim and a small nearby
+workstation/ore scan. Old memory does not establish where Mia is now or whether
+a resource remains. Unknown/unloaded information stays unknown. Movement while
+the model is generating is expected; actions recheck routes and block state.
+
+Use `!resumeGoal` after changing the world or clearing an obstacle. It allows one
+fresh bounded retry at the first blocked step rather than waiting out an old
+cooldown. It does not remove ordinary retry limits or revive cancelled/completed
+goals. A failed resumed attempt becomes blocked again.
+
+Use `!resetShelter` to abandon the current shelter site. It cancels an active
+shelter build, atomically removes this world/dimension's working site and its
+matching `home` waypoint, and prevents restoring that old shelter goal. It leaves
+the real blocks, other named places, owned stations and historical experience
+records intact. The next `!shelterGoal` chooses a site near Mia's actual position.
+For a normal retry that should preserve construction progress, use `!resumeGoal`.

@@ -13,7 +13,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Addition | Behavior in this fork |
 | --- | --- |
 | Native Java 26.3 runtime | Bundled, pinned protocol, data, chunk, physics, and Mineflayer changes connect directly to 26.3. This remains experimental. |
-| Fresh inventory for model decisions | Each model request receives a current carried-inventory snapshot after historical chat. Replies generated across an inventory change are retried with fresh state, within a bounded limit. Custom profiles receive the same grounding. |
+| Fresh world state for model decisions | Each request receives carried inventory, exact position/dimension, health/hunger, aim and a bounded nearby workstation/ore scan after historical chat. Inventory/dimension changes discard stale decisions; ordinary movement does not starve generation. Custom profiles receive the same grounding. |
 | Managed gathering and crafting | `!gatherGoal` and `!makeGoal` target a **total inventory quantity**, reuse supplies already on hand, and verify pickup/crafting before reporting completion. |
 | Verified starter shelter | `!shelterGoal` selects level ground, gathers calculated oak supplies, places a fixed 5×5 shelter and outside access steps, verifies actual blocks, tests the door, and remembers home. Partial builds resume at the same site. See [shelter building](docs/mia-shelter.md). |
 | Crafting quantities and final reports | Supported legacy recipe commands route through managed crafting while preserving additional batch counts. Skill receipts distinguish batches, output gains and held totals; verified completion produces one final report without starting another action loop. See [crafting reliability](docs/mia-crafting-reliability.md). |
@@ -158,13 +158,14 @@ Supported oak/wooden/stone `!craftRecipe` requests also use the managed planner.
 Their count remains **additional recipe batches**: `!craftRecipe("stick", 1)`
 produces four additional sticks. Use `!makeGoal("stick", 4)` to keep four total.
 See [inventory grounding, quantities and completion reports](docs/mia-crafting-reliability.md).
-Existing Mia folders can use the [reversible source installer](scripts/mia-crafting-reliability-fix.cjs); installation and rollback commands are in that guide.
+Existing Mia folders can use the [current reversible source installer](scripts/mia-world-awareness-fix.cjs); installation and rollback commands are in that guide.
 
 | Command | Supported targets |
 | --- | --- |
 | `!gatherGoal(item, count)` | Log blocks, such as `oak_log` and `spruce_log`. |
 | `!makeGoal(item, count)` | `oak_planks`, `oak_door`, `stick`, `crafting_table`, `cobblestone`, `furnace`, `raw_iron`, `iron_ingot`, `charcoal`; wooden and stone axes, pickaxes, shovels, hoes, and swords. The crafting path uses oak/cobblestone and smelting uses an owned furnace. |
 | `!shelterGoal` | One fixed oak starter shelter. Reuses its saved site and rechecks already placed blocks. |
+| `!resetShelter` | Abandon this world's current shelter site; keep the physical blocks and history. Clears only its matching home waypoint. |
 
 During a managed goal:
 
@@ -175,7 +176,7 @@ During a managed goal:
 | `!memory` | Inspect the current world's historical outcomes, locations, and saved goal. |
 | `!endGoal` or `!stop` | Cancel the goal, including while it is paused for combat. |
 
-Mia stops after verified completion. Combat and escape can interrupt her, after which she resumes the same target. With a world ID configured, death/restart can restore the target and replan from current inventory. Repeated failures block the goal; two deaths prevent automatic continuation. Use `!resumeGoal` after addressing a blockage. `!stop` and `!endGoal` persist cancellation.
+Mia stops after verified completion. Combat and escape can interrupt her, after which she resumes the same target. With a world ID configured, death/restart can restore the target and replan from current inventory. Repeated failures block the goal; two deaths prevent automatic continuation. Use `!resumeGoal` after addressing a blockage; explicit resume renews the first blocked step's bounded attempt. Automatic recovery still observes cooldowns. Use `!resetShelter` only when abandoning the saved building site. `!stop` and `!endGoal` persist cancellation.
 
 ### How the crafting table behaves
 
@@ -206,6 +207,8 @@ Run the committed regression suite:
 ```powershell
 npm.cmd run test:goals
 ```
+
+The world-awareness update fixes off-center placement stalls and a pathfinder setting that accidentally forbade ordinary one-block steps down. Tests include real upstream descent off a finished roof, rejection of two-block drops, live position/block refresh, manual retry limits and site reset without erasing history.
 
 The regression suite covers crafting/navigation/memory, supported station placement and visible access, verified smelting, legacy command routing, fresh inventory decisions, process restart/cancellation, and installer backup/rollback. Shelter tests use actual block shapes, raycasting, recipes and pathfinding for **1.21.4 and native 26.3**, replacing network/physics execution with controlled I/O. They exercise the complete blueprint, outside roof access, door traversal, calculated materials, combat/death recovery, explicit cancellation and SQLite world scoping. These automated checks do not substitute for live shelter gameplay testing. See [test](test) and [shelter validation](docs/mia-shelter.md).
 

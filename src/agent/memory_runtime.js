@@ -12,7 +12,7 @@ const resumable = new Set(['running', 'paused']);
 const validGoal = goal => goal && ['make', 'gather', 'shelter'].includes(goal.kind) &&
     /^[a-z0-9_]{1,80}$/.test(goal.item) && Number.isSafeInteger(goal.target) && goal.target >= 1 && goal.target <= 64 &&
     (goal.kind !== 'shelter' || goal.item === 'shelter' && goal.target === 1 && (goal.shelter == null || shelterRecord(goal.shelter)));
-const stepKey = (step, position) => `${step.type}:${step.item}:` + (step.position ?
+const stepKey = (step, position) => `${step.type === 'place' ? 'place-v2' : step.type}:${step.item}:` + (step.position ?
     `block:${step.position.x},${step.position.y},${step.position.z}` : cellOf(position));
 const cosine = (a, b) => {
     if (!a || !b || a.length !== b.length) return 0;
@@ -100,6 +100,29 @@ export class AgentMemory {
     shelter() {
         return this.safe(() => shelterRecord(this.store.getLocation(this.world, this.dimension, 'owned:shelter')?.metadata));
     }
+    resetShelter() {
+        // Reset this site's working record atomically, never erase history or
+        // alter world blocks. Retain an independently saved home elsewhere.
+        return this.safe(() => {
+            const store = this.store, world = this.world, dimension = this.dimension;
+            const record = shelterRecord(store.getLocation(world, dimension, 'owned:shelter')?.metadata);
+            const home = store.getLocation(world, dimension, 'place:home')?.position;
+            const goal = store.getGoal(world);
+            store.db.exec('BEGIN IMMEDIATE');
+            try {
+                store.deleteLocation(world, dimension, 'owned:shelter');
+                if (record && home && home.x === record.origin.x + 2 &&
+                    home.y === record.origin.y && home.z === record.origin.z + 2)
+                    store.deleteLocation(world, dimension, 'place:home');
+                if (goal?.kind === 'shelter' && goal.dimension === dimension)
+                    store.setGoal(world, { ...goal, status: 'cancelled', reason: 'Shelter site reset', updated: this.clock() });
+                store.record(world, dimension, { kind: 'site_reset', item: 'shelter', position: record?.origin || this.position,
+                    verified: true, text: 'Shelter working site reset. Old blocks remain in the world; this historical location is not the active build site.' });
+                store.db.exec('COMMIT');
+            } catch (error) { store.db.exec('ROLLBACK'); throw error; }
+            return true;
+        }, false);
+    }
     saveStation(record) {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
         this.safe(() => this.store.putLocation(this.world, record.dimension, 'owned:crafting_table', 'station', record.position,
@@ -157,6 +180,7 @@ export class AgentMemory {
         goal.memoryId = randomUUID();
         goal.memoryDimension = this.dimension;
         goal.memoryDeaths = this.restoringGoal?.deaths || 0;
+        goal.manualRetry = this.restoringGoal?.manualRetry === true;
         goal.resourceSearch = restoredResourceSearch(this.restoringGoal?.resourceSearch);
         this.checkpoint(goal, 'running');
     }
@@ -206,7 +230,10 @@ export class AgentMemory {
                 catch { surroundings.push('unloaded'); }
             }
         }
-        const evidence = [cellOf(p), inventory, surroundings];
+        // A new work position is new navigation evidence, even within the
+        // same coarse resource cell. Target neighbors include actual states.
+        const spatial = ['site', 'place', 'clear', 'return', 'finish', 'inspect'].includes(step?.type);
+        const evidence = [spatial ? p : cellOf(p), inventory, surroundings];
         if (step?.position && this.bot.blockAt) {
             const at = step.position;
             evidence.push([[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
@@ -224,9 +251,12 @@ export class AgentMemory {
         const key = stepKey(step, this.position);
         const fingerprint = this.fingerprint(step);
         const failure = this.safe(() => this.store.failure(this.world, this.dimension, key, fingerprint));
+        const manualRetry = goal.manualRetry === true;
+        goal.manualRetry = false; // One explicit retry grant, never persisted.
         if (failure) {
             if (step.type === 'gather' && goal.resourceRecoveryEnabled) goal.skipResourceArea = true;
-            else throw new Error(`Remembered failure cooldown: ${failure.reason} Move to another resource area, change the needed tools/materials, or retry in ${Math.ceil((failure.expires - this.clock()) / 1000)} seconds.`);
+            else if (manualRetry) this.safe(() => this.store.clearFailure(this.world, this.dimension, key));
+            else throw new Error(`Remembered failure cooldown: ${failure.reason} Recheck the world and use !resumeGoal for a fresh bounded attempt, or retry in ${Math.ceil((failure.expires - this.clock()) / 1000)} seconds.`);
         }
         goal.memoryStep = { type: step.type, item: step.item, key, fingerprint };
         this.checkpoint(goal);
@@ -260,7 +290,7 @@ export class AgentMemory {
         const command = goal.kind === 'shelter' ? '!shelterGoal' :
             `!${goal.kind === 'make' ? 'makeGoal' : 'gatherGoal'}(${JSON.stringify(goal.item)}, ${goal.target})`;
         let result;
-        this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {} } : goal;
+        this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {}, manualRetry: true } : goal;
         try { result = await execute(command); }
         finally { this.restoringGoal = null; }
         const current = this.pendingGoal();

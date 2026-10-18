@@ -1,7 +1,8 @@
 // Fresh carried inventory for model decisions. Never persist this as memory.
 export function captureInventory(bot) {
+    const dimension = String(bot?.game?.dimension ?? 'unknown');
     if (typeof bot?.inventory?.items !== 'function')
-        return { available: false, counts: {}, fingerprint: 'unavailable' };
+        return { available: false, counts: {}, fingerprint: 'unavailable', dimension };
     try {
         const counts = Object.create(null);
         for (const item of bot.inventory.items()) {
@@ -11,9 +12,9 @@ export function captureInventory(bot) {
         }
         const entries = Object.entries(counts).sort(([a], [b]) => a.localeCompare(b));
         return { available: true, counts: Object.fromEntries(entries),
-            fingerprint: JSON.stringify(entries) };
+            fingerprint: JSON.stringify(entries), dimension };
     } catch {
-        return { available: false, counts: {}, fingerprint: 'unavailable' };
+        return { available: false, counts: {}, fingerprint: 'unavailable', dimension };
     }
 }
 
@@ -34,13 +35,68 @@ export function inventoryContext(snapshot) {
     return lines.join('\n');
 }
 
-export function groundInventory(messages, snapshot) {
+// Native game observations, not remembered descriptions or screenshot vision.
+// Searches cover only nearby loaded blocks. Finding a block does not prove a
+// safe route or an unobstructed interaction face.
+export function captureWorld(bot) {
+    const finite = n => typeof n === 'number' && Number.isFinite(n);
+    const p = bot?.entity?.position;
+    const position = p && [p.x, p.y, p.z].every(finite) ? { x: p.x, y: p.y, z: p.z } : null;
+    const blockView = block => block?.name && block.position ? {
+        name: block.name, position: { x: block.position.x, y: block.position.y, z: block.position.z }
+    } : null;
+    const state = { observedAt: new Date().toISOString(), dimension: String(bot?.game?.dimension ?? 'unknown'),
+        position, health: finite(bot?.health) ? bot.health : null, hunger: finite(bot?.food) ? bot.food : null,
+        yaw: finite(bot?.entity?.yaw) ? bot.entity.yaw : null, pitch: finite(bot?.entity?.pitch) ? bot.entity.pitch : null,
+        aim: null, aimAvailable: false, nearby: [], nearbyAvailable: false };
+    if (position && typeof bot.blockAtCursor === 'function') {
+        try { state.aim = blockView(bot.blockAtCursor(4)); state.aimAvailable = true; } catch {}
+    }
+    if (position && typeof bot.findBlocks === 'function' && typeof bot.blockAt === 'function') {
+        for (const [names, count] of [
+            [['crafting_table', 'furnace', 'blast_furnace', 'smoker'], 4],
+            [['iron_ore', 'deepslate_iron_ore', 'coal_ore', 'deepslate_coal_ore', 'copper_ore', 'deepslate_copper_ore'], 8]
+        ]) {
+            const matching = names.map(name => bot.registry?.blocksByName?.[name]?.id).filter(Number.isInteger);
+            if (!matching.length) continue;
+            try {
+                const found = bot.findBlocks({ matching, maxDistance: 12, count });
+                for (const at of found) {
+                    const block = blockView(bot.blockAt(at));
+                    if (block && names.includes(block.name)) state.nearby.push(block);
+                }
+                state.nearbyAvailable = true;
+            } catch {}
+        }
+    }
+    return state;
+}
+
+export function worldContext(state) {
+    if (!state) return '';
+    const point = p => p ? [p.x, p.y, p.z].map(n => Math.round(n * 100) / 100).join(', ') : 'unavailable';
+    const angle = n => n === null ? 'unavailable' : String(Math.round(n * 180 / Math.PI));
+    const lines = ['CURRENT WORLD OBSERVATION — ' + state.observedAt + ':',
+        'Dimension: ' + state.dimension + '; feet position: ' + point(state.position) + '.',
+        'Health: ' + (state.health ?? 'unavailable') + '; hunger: ' + (state.hunger ?? 'unavailable') + '.',
+        'Minecraft yaw: ' + angle(state.yaw) + ' degrees; pitch: ' + angle(state.pitch) + ' degrees.',
+        'Block currently aimed at within 4 blocks: ' + (!state.aimAvailable ? 'unavailable' : state.aim ?
+            state.aim.name + ' at ' + point(state.aim.position) : 'no block hit') + '.',
+        'Nearby loaded workstations and ores (within 12 blocks; limited sample; reachability unproven):'];
+    for (const block of state.nearby) lines.push('- ' + block.name + ' at ' + point(block.position));
+    if (!state.nearby.length) lines.push(state.nearbyAvailable ? '- No matches in the bounded scan.' : '- Scan unavailable.');
+    lines.push('These observations supersede older positions, directions and block descriptions in memory and examples.',
+        'World blocks can change. Recheck the actual block, support and route before using a remembered location. A failed route does not mean a block is absent.');
+    return lines.join('\n');
+}
+
+export function groundInventory(messages, snapshot, world) {
     // Append only to this model request. Old action receipts stay historical;
     // neither history nor persistent memory is rewritten with temporary state.
-    return [...messages, { role: 'system', content: inventoryContext(snapshot) }];
+    return [...messages, { role: 'system', content: [inventoryContext(snapshot), worldContext(world)].filter(Boolean).join('\n\n') }];
 }
 
 export function inventoryChanged(bot, snapshot) {
     const latest = captureInventory(bot);
-    return latest.available !== snapshot.available || latest.fingerprint !== snapshot.fingerprint;
+    return latest.available !== snapshot.available || latest.fingerprint !== snapshot.fingerprint || latest.dimension !== snapshot.dimension;
 }

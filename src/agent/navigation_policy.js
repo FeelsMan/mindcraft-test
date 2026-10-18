@@ -29,6 +29,9 @@ export function safeMiningMovements(movements) {
     movements.scafoldingBlocks = [];
     movements.allow1by1towers = false;
     movements.allowParkour = false;
-    movements.maxDropDown = 1;
+    // Pathfinder measures a drop to the landing SUPPORT block, not the feet.
+    // A normal one-block step down therefore needs 2; 1 strands the bot on
+    // ledges/roofs. This still rejects a two-block downward step.
+    movements.maxDropDown = 2;
     return movements;
 }
