@@ -8,9 +8,10 @@ const repository = path.resolve(__dirname, '..');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 const installer = fs.existsSync(scriptsInstaller) ? scriptsInstaller :
     path.join(repository, 'mia-crafting-reliability-fix.cjs');
-const { PAYLOAD } = require(installer);
+const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
 const prior = '5f53ba3a859b9b2353af2491bc8ed320fecb377a';
+const published = '760145bcba62295d57b82afdec7ad43e73e1a6dd';
 function gitFile(ref, filename) {
     try { return execFileSync('git', ['show', ref + ':' + filename], {
         cwd: repository, stdio: ['ignore', 'pipe', 'pipe']
@@ -58,6 +59,26 @@ function assertPrivateUnchanged(f) {
 function latest(f) {
     return fs.readFileSync(path.join(f.root, 'mia-goal-backups/crafting-reliability/latest.json'), 'utf8');
 }
+
+test('the standalone installer embeds the current source, tests and documentation', () => {
+    for (const entry of PAYLOAD)
+        assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
+});
+
+test('the installed crafting reliability build upgrades without changing profiles or saved memory', {
+    skip: !gitFile(published, 'package.json')
+}, () => {
+    const f = fixture(published);
+    try {
+        ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
 
 test('installer applies and verifies known source, is idempotent, and preserves profiles/settings/memory', { skip: !hasBaseline }, () => {
     const f = fixture();

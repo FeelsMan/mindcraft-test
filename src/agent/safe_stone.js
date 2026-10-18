@@ -1,6 +1,7 @@
 import pf from 'mineflayer-pathfinder';
 import { safeMiningMovements } from './navigation_policy.js';
 import { safeFeet, planSafePath } from './navigation_recovery.js';
+import { blockFaceReachable } from './block_interaction.js';
 
 const hazards = new Set(['water', 'lava', 'fire', 'soul_fire', 'magma_block', 'cactus', 'campfire', 'soul_campfire', 'powder_snow']);
 const solid = block => block?.boundingBox === 'block' && !hazards.has(block.name);
@@ -15,12 +16,16 @@ export function stoneStandingPositions(bot, block) {
     // Never select our support block, even if it is the closest stone.
     if (sameColumn(bot.entity.position, target) && target.y < Math.floor(bot.entity.position.y)) return [];
     if (!solid(bot.blockAt(target.offset(0, -1, 0)))) return [];
+    const face = bot.world?.getBlock && bot.world?.raycast ?
+        { isEnd: feet => blockFaceReachable(bot, target, feet) } : null;
     const positions = [];
-    for (const dy of [0, -1]) {
+    // Floor ore is below our feet; an exposed high wall block can be above
+    // our head. Both can be mined from an existing supported side position.
+    for (const dy of [1, 0, -1, -2, -3]) {
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const feet = target.offset(dx, dy, dz);
             if (empty(bot.blockAt(feet)) && empty(bot.blockAt(feet.offset(0, 1, 0))) &&
-                solid(bot.blockAt(feet.offset(0, -1, 0)))) positions.push(feet);
+                solid(bot.blockAt(feet.offset(0, -1, 0))) && (!face || face.isEnd(feet))) positions.push(feet);
         }
     }
     return positions.sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));
@@ -80,20 +85,22 @@ async function collectFromSide(bot, candidates, api, standingPositions, matches)
             if (bot.interrupt_code) return false;
             const movements = safeMiningMovements(api.movements());
             const destination = new pf.goals.GoalBlock(feet.x, feet.y, feet.z);
-            const path = await planSafePath(bot, movements, destination, 150);
-            if (path.status !== 'success') { await new Promise(resolve => setTimeout(resolve, 0)); continue; }
-            await api.prepareTravel?.(feet);
-            if (bot.interrupt_code) return false;
-            bot.pathfinder.setMovements(movements);
-            try {
-                if (api.travel) { if (!await api.travel(feet)) continue; }
-                else await bot.pathfinder.goto(destination);
-            }
-            catch (error) {
+            if (bot.entity.position.distanceTo(feet.offset(0.5, 0, 0.5)) >= 0.8) {
+                const path = await planSafePath(bot, movements, destination, 150);
+                if (path.status !== 'success') { await new Promise(resolve => setTimeout(resolve, 0)); continue; }
+                await api.prepareTravel?.(feet);
                 if (bot.interrupt_code) return false;
-                api.log?.('Safe stone approach blocked: ' + error.message);
-                continue;
-            }
+                bot.pathfinder.setMovements(movements);
+                try {
+                    if (api.travel) { if (!await api.travel(feet)) continue; }
+                    else await bot.pathfinder.goto(destination);
+                }
+                catch (error) {
+                    if (bot.interrupt_code) return false;
+                    api.log?.('Safe stone approach blocked: ' + error.message);
+                    continue;
+                }
+            } else bot.pathfinder.setMovements(movements);
             if (bot.interrupt_code) return false;
             const block = bot.blockAt(candidate.position);
             const current = bot.entity.position;

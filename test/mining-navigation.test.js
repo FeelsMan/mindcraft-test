@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Vec3 from 'vec3';
 import { protectCraftingMaterials, safeMiningMovements } from '../src/agent/navigation_policy.js';
-import { stoneStandingPositions, findSafeStoneTargets, collectStoneFromSide } from '../src/agent/safe_stone.js';
+import { stoneStandingPositions, findSafeStoneTargets, findSafeIronTargets, collectStoneFromSide, collectIronFromSide } from '../src/agent/safe_stone.js';
 
 function navigationFixture() {
     const bot = { craftingGoal: { active: true, item: 'stone_pickaxe' },
@@ -76,6 +76,32 @@ test('position-aware search filters exposure after palette matching', () => {
         return [f.target.position];
     };
     assert.deepEqual(findSafeStoneTargets(f.bot, () => true), [f.target]);
+});
+
+test('floor iron beside the bot is found and mined from its existing safe position', async () => {
+    const f = stoneFixture(), ore = f.makeBlock('iron_ore', new Vec3(1, 63, 0));
+    f.blocks.set(ore.position.toString(), ore);
+    f.bot.findBlocks = options => {
+        assert(options.matching({ name: 'iron_ore' }));
+        return options.useExtraInfo(ore) ? [ore.position] : [];
+    };
+    f.api.prepareTravel = async () => assert.fail('No return trip is needed before mining a block already in reach');
+    f.bot.pathfinder.getPathTo = () => assert.fail('The bot already occupies a verified side position');
+    const candidates = findSafeIronTargets(f.bot, () => true);
+    assert.deepEqual(candidates, [ore]);
+    assert.equal(await collectIronFromSide(f.bot, candidates, f.api), true);
+    assert.deepEqual(f.digs, [ore.position]);
+    assert(f.moves.every(policy => !policy.canDig && policy.scafoldingBlocks.length === 0));
+    assert.equal(f.bot.blockAt(new Vec3(0, 63, 0)).name, 'dirt', 'Retain the bot\'s original support');
+    assert.equal(f.bot.blockAt(new Vec3(1, 62, 0)).name, 'dirt', 'Retain the mined block\'s safe floor');
+});
+
+test('floor iron under the bot or over a hazardous drop is still rejected', () => {
+    const f = stoneFixture();
+    assert.deepEqual(stoneStandingPositions(f.bot, f.makeBlock('iron_ore', new Vec3(0, 63, 0))), []);
+    const ore = f.makeBlock('iron_ore', new Vec3(1, 63, 0));
+    f.blocks.set(new Vec3(1, 62, 0).toString(), f.makeBlock('lava', new Vec3(1, 62, 0)));
+    assert.deepEqual(stoneStandingPositions(f.bot, ore), []);
 });
 
 test('stone mining navigates to a supported side and digs without spending building blocks', async () => {

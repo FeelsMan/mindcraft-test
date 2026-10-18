@@ -8,6 +8,7 @@ import prismarineWorld from 'prismarine-world';
 import goto from 'mineflayer-pathfinder/lib/goto.js';
 import { stationWorkGoal, supportedStationSpace, approachStation, canUseStation, placeSupportedStation } from '../src/agent/station_access.js';
 import { getNearestFreeSpace } from '../src/agent/library/world.js';
+import { stoneStandingPositions } from '../src/agent/safe_stone.js';
 
 // Use real block shapes, upstream raycasting and goal predicates. Replace only
 // movement/packet I/O; the native 26.3 fixture exercises those boundaries too.
@@ -97,6 +98,54 @@ test('owned furnaces use the same actual face and work-position verification', a
     assert.equal(canUseStation(f.bot, p), false);
     assert(await approachStation(f.bot, p, f.api));
     assert(canUseStation(f.bot, p));
+});
+
+test('standing on a furnace is a valid visible work position and needs no packing trip', async () => {
+    const f = fixture(), p = new Vec3(0, 64, 0); f.set(p, 'furnace');
+    f.bot.entity.position = new Vec3(0.5, 65, 0.5);
+    f.api.prepareTravel = async () => assert.fail('Using the current position must not retrieve a distant table');
+    assert(canUseStation(f.bot, p));
+    assert(await approachStation(f.bot, p, f.api));
+    assert.equal(f.calls.filter(c => c[0] === 'move').length, 0);
+});
+
+test('stations above or below the current floor use real face reach rather than a fixed height band', async () => {
+    for (const y of [62, 66]) {
+        const f = fixture(), p = new Vec3(2, y, 0); f.set(p, 'furnace');
+        if (y === 62) {
+            f.set(p.offset(0, 1, 0), 'air');
+            f.set(new Vec3(1, 63, 0), 'air'); // An open view over the edge, retaining the bot's support.
+        }
+        f.api.prepareTravel = async () => assert.fail('The visible station is already in reach');
+        assert(canUseStation(f.bot, p), String(y));
+        assert(await approachStation(f.bot, p, f.api));
+    }
+});
+
+test('expanded station heights still reject walls, missing support and out-of-reach blocks', () => {
+    const f = fixture(), p = new Vec3(2, 66, 0); f.set(p, 'furnace');
+    f.set(new Vec3(1, 65, 0), 'stone'); f.set(new Vec3(1, 66, 0), 'stone');
+    assert.equal(canUseStation(f.bot, p), false);
+    f.set(new Vec3(1, 65, 0), 'air'); f.set(new Vec3(1, 66, 0), 'air');
+    f.set(new Vec3(0, 63, 0), null);
+    assert.equal(canUseStation(f.bot, p), false);
+    const distant = new Vec3(0, 72, 0); f.set(distant, 'furnace');
+    assert.equal(canUseStation(f.bot, distant), false);
+});
+
+test('floor ore work positions respect actual raycasting and never mine the current support', () => {
+    const f = fixture(), p = new Vec3(1, 63, 0); f.set(p, 'iron_ore');
+    assert(stoneStandingPositions(f.bot, f.bot.blockAt(p)).some(at => at.equals(new Vec3(0, 64, 0))));
+    assert.deepEqual(stoneStandingPositions(f.bot, f.bot.blockAt(new Vec3(0, 63, 0))), []);
+});
+
+test('overhead ore uses eye-to-face reach and rejects an intervening wall', () => {
+    const f = fixture(), p = new Vec3(2, 66, 0); f.set(p, 'iron_ore');
+    f.set(p.offset(0, -1, 0), 'stone');
+    const current = new Vec3(1, 64, 0);
+    assert(stoneStandingPositions(f.bot, f.bot.blockAt(p)).some(at => at.equals(current)));
+    f.set(new Vec3(1, 66, 0), 'stone'); // Keep the standing cell/head clear; only obstruct the ray.
+    assert.equal(stoneStandingPositions(f.bot, f.bot.blockAt(p)).some(at => at.equals(current)), false);
 });
 
 test('work positions reject low ceilings and unsupported ground; missing geometry is not usable', () => {

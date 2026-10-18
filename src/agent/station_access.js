@@ -3,6 +3,7 @@ import Vec3 from 'vec3';
 import { safeEmpty, safeSolid, safeFeet, walkSafely, planSafePath } from './navigation_recovery.js';
 import { safeMiningMovements } from './navigation_policy.js';
 import { sleep } from './managed_goal.js';
+import { blockFaceReachable } from './block_interaction.js';
 
 const point = p => new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
 const stations = new Set(['crafting_table', 'furnace']);
@@ -25,10 +26,11 @@ export function stationWorkGoal(bot, position, { placing = false } = {}) {
     if (placing ? !supportedStationSpace(bot, p) : !stations.has(bot.blockAt(p)?.name)) return null;
     const face = placing ? new pf.goals.GoalPlaceBlock(p, bot.world,
         { range: 4, faces: [new Vec3(0, -1, 0)], LOS: true }) :
-        new pf.goals.GoalLookAtBlock(p, bot.world, { reach: 4, entityHeight: 1.6 });
+        { isEnd: feet => blockFaceReachable(bot, p, feet) };
     const feet = [];
-    for (const dy of [0, -1, 1]) for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
-        if (dx === 0 && dz === 0) continue;
+    // Include the full vertical interaction range and standing on top of a
+    // station. The real face predicate still proves reach and line of sight.
+    for (const dy of [0, -1, 1, -2, 2, -3, 3, -4, -5]) for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
         const at = p.offset(dx, dy, dz);
         if (safeFeet(bot, at) && face.isEnd(at)) feet.push(at);
     }
@@ -47,6 +49,7 @@ export function canUseStation(bot, position) {
 export async function approachStation(bot, position, api, { placing = false, timeoutMs = 12000 } = {}) {
     if (bot.interrupt_code) return false;
     const p = point(position), deadline = Date.now() + timeoutMs;
+    if (stationWorkGoal(bot, p, { placing })?.isEnd(bot.entity.position.floored())) return true;
     await api.prepareTravel?.(p);
     if (bot.interrupt_code) return false;
     if (!bot.blockAt(p)) {

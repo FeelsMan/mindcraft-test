@@ -155,7 +155,11 @@ export async function craftRecipe(bot, itemName, num=1) {
     placeTable: if (!recipes || recipes.length === 0) {
         recipes = bot.recipesFor(mc.getItemId(itemName), null, 1, true);
         if (!recipes || recipes.length === 0) break placeTable;
-        craftingTable = await station.forCraft();
+        // An immediately usable table needs no return trip or ownership
+        // change. Keep our remembered table for later pickup and reuse.
+        craftingTable = world.getNearestBlocksWhere(bot, block => block?.name === 'crafting_table', craftingTableRange, 16)
+            .find(block => block && canUseStation(bot, block.position)) ?? null;
+        craftingTable ??= await station.forCraft();
         if (bot.interrupt_code) return false;
         craftingTable ??= world.getNearestBlock(bot, 'crafting_table', craftingTableRange);
         if (craftingTable === null) {

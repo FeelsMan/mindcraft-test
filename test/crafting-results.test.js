@@ -1,5 +1,9 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import Vec3 from 'vec3';
+import minecraftData from 'minecraft-data';
+import prismarineBlock from 'prismarine-block';
+import prismarineWorld from 'prismarine-world';
 import { craftItemCount, waitForCraftOutput, craftingReceipt } from '../src/agent/crafting_result.js';
 
 const originalMc = await import('../src/utils/mcdata.js');
@@ -7,7 +11,8 @@ mock.module(new URL('../src/utils/mcdata.js', import.meta.url).href, { namedExpo
     ...originalMc,
     getItemId: () => 1,
     getItemCraftingRecipes: name => name === 'stick'
-        ? [[{ oak_planks: 2 }, { craftedCount: 4 }]] : null,
+        ? [[{ oak_planks: 2 }, { craftedCount: 4 }]] : name === 'furnace'
+        ? [[{ cobblestone: 8 }, { craftedCount: 1 }]] : null,
     ingredientsFromPrismarineRecipe: recipe => recipe.ingredientCounts
 } });
 const originalWorld = await import('../src/agent/library/world.js');
@@ -53,6 +58,35 @@ test('existing output is retained and reported separately from the new item gain
     assert.equal(f.stock.stick, 12);
     assert.match(f.bot.output, /Observed inventory gain: 8 stick/);
     assert.match(f.bot.output, /Current carried inventory total: 12 stick/);
+});
+
+test('actual crafting uses a visible nearby table before attempting to recover a distant owned table', async () => {
+    const f = fixture({ cobblestone: 8 });
+    const data = minecraftData('1.21.4'), Block = prismarineBlock('1.21.4'), World = prismarineWorld('1.21.4');
+    const hidden = new Vec3(0, 64, 2), usable = new Vec3(2, 64, 0);
+    const owned = { position: new Vec3(100, 64, 0), dimension: 'overworld' };
+    f.bot.entity = { position: new Vec3(0.5, 64, 0.5) };
+    f.bot.blockAt = p => {
+        const at = p.floored();
+        const name = at.equals(hidden) || at.equals(usable) ? 'crafting_table' :
+            at.x === 0 && at.z === 1 && [64, 65].includes(at.y) || at.y < 64 ? 'stone' : 'air';
+        const block = Block.fromStateId(data.blocksByName[name].minStateId, 0);
+        block.position = at; return block;
+    };
+    f.bot.world = new World().sync; f.bot.world.getBlock = f.bot.blockAt;
+    f.bot.findBlocks = () => [hidden, usable];
+    f.bot.craftingStation = { record: owned,
+        forCraft: async () => assert.fail('Do not attempt the unreachable owned table first'),
+        beforeTravel: async () => assert.fail('Using a nearby table needs no departure or pickup') };
+    const recipe = { result: { id: 1, count: 1 }, ingredientCounts: { cobblestone: 8 } };
+    f.bot.recipesFor = (_id, _meta, _count, table) => table ? [recipe] : [];
+    f.bot.craft = async (_recipe, count, table) => {
+        assert.equal(count, 1); assert(table.position.equals(usable));
+        f.stock.cobblestone -= 8; f.stock.furnace = 1;
+    };
+    assert.equal(await craftRecipe(f.bot, 'furnace', 1), true);
+    assert.equal(f.stock.furnace, 1);
+    assert.equal(f.bot.craftingStation.record, owned, 'Borrowing never transfers ownership or forgets the old station');
 });
 
 test('API completion waits for the corresponding inventory update before claiming verified output', async () => {
