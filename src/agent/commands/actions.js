@@ -53,7 +53,7 @@ function managedSkills(requestContext) {
 export const actionsList = [
     {
         name: '!resetShelter',
-        description: 'Abandon the saved shelter site in the current world/dimension so the next !shelterGoal chooses a new one. Cancels an active shelter build. Leaves placed blocks and experience history intact; removes the home waypoint only if it belongs to that site. Use when abandoning this site, not for an ordinary retry.',
+        description: 'Abandon the saved shelter site in the current world/dimension so a later shelter request chooses a new one. Cancels an active shelter build. Leaves placed blocks and experience history intact; removes the home waypoint only if it belongs to that site. Use when abandoning this site, not for an ordinary retry.',
         perform: resetShelterSite
     },
     {
