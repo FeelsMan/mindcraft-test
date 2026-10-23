@@ -5,12 +5,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const repository = path.resolve(__dirname, '..');
-const namedInstaller = path.join(repository, 'scripts/mia-station-pickup-fix.cjs');
+const namedInstaller = path.join(repository, 'scripts/mia-navigation-progress-fix.cjs');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 // --test must validate the file actually launched by the user, even when an
 // older installer remains elsewhere in their Mindcraft folder.
 const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(namedInstaller) ? namedInstaller :
-    fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-station-pickup-fix.cjs'));
+    fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-navigation-progress-fix.cjs'));
 const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
 const prior = '5f53ba3a859b9b2353af2491bc8ed320fecb377a';
@@ -67,6 +67,24 @@ function latest(f) {
 test('the standalone installer embeds the current source, tests and documentation', () => {
     for (const entry of PAYLOAD)
         assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
+});
+
+test('the published pickup-recovery build upgrades navigation and restores exact bytes while retaining saved memory', {
+    skip: !gitFile('38162a579c2d0e8b01235242e99f3eb9d413c6b3', 'package.json')
+}, () => {
+    const f = fixture('38162a579c2d0e8b01235242e99f3eb9d413c6b3');
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/navigation_progress.js'), 'utf8'), /class NavigationProgress/);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/navigation_recovery.js'), 'utf8'), /gotoWithProgress/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
 test('the published live-memory build receives pending-pickup recovery and restores exact bytes without touching saved state', {

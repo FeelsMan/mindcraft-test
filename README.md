@@ -22,6 +22,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Crafting material protection | Routine navigation preserves recipe ingredients instead of spending crafting cobblestone on scaffolding. Wooden prerequisites are obtained before stone. Urgent safety actions can still use blocks when needed. |
 | Safer stone collection | Managed cobblestone collection uses reachable, supported side positions. Its approach cannot dig a shaft, build a pillar, or bridge a gap. |
 | Resource finding and route recovery | Managed goals recheck remembered resource areas and explore supported waypoints when local collection stalls. Searches and route retries are bounded, checkpointed, and verified against live blocks/inventory. See [resource recovery](docs/mia-resource-recovery.md). |
+| Navigation progress tracking | Walking back and forth cannot refresh the progress watchdog forever. New route waypoints allow valid detours; failed station approaches try another supported work position. Finite travel verifies arrival, and blocked managed goals retain their targets. See [navigation progress](docs/mia-navigation-progress.md). |
 | Verified iron/charcoal smelting | `!makeGoal` calculates ore/tools/fuel, reuses an owned furnace and its live queued contents, verifies output in inventory, and resumes after interruptions. Older `!smeltItem` requests for raw iron or oak logs also use this planner. See [smelting](docs/mia-smelting.md). |
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
@@ -159,7 +160,7 @@ Supported oak/wooden/stone `!craftRecipe` requests also use the managed planner.
 Their count remains **additional recipe batches**: `!craftRecipe("stick", 1)`
 produces four additional sticks. Use `!makeGoal("stick", 4)` to keep four total.
 See [inventory grounding, quantities and completion reports](docs/mia-crafting-reliability.md).
-Existing Mia folders can use the [current reversible source installer](scripts/mia-station-pickup-fix.cjs); installation, rollback and the missing-table recovery test are in the [station pickup guide](docs/mia-station-pickup.md).
+Existing Mia folders can use the [current reversible source installer](scripts/mia-navigation-progress-fix.cjs); installation, rollback and live route tests are in the [navigation progress guide](docs/mia-navigation-progress.md).
 
 | Command | Supported targets |
 | --- | --- |

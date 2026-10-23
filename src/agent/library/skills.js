@@ -9,7 +9,7 @@ import { protectCraftingMaterials } from '../navigation_policy.js';
 import { findSafeStoneTargets, collectStoneFromSide, findSafeLogTargets, collectLogFromSide, findSafeIronTargets, collectIronFromSide } from '../safe_stone.js';
 import { ManagedFurnace, openManagedFurnace } from '../managed_smelting.js';
 import { ironPickaxes } from '../smelting_plan.js';
-import { walkSafely, safeWaypoints } from '../navigation_recovery.js';
+import { walkSafely, safeWaypoints, gotoWithProgress } from '../navigation_recovery.js';
 import { collectWithRecovery } from '../resource_recovery.js';
 import { approachStation, canUseStation, placeSupportedStation } from '../station_access.js';
 import { prepareShelterTravel, leaveShelterForResource } from '../shelter_building.js';
@@ -1234,8 +1234,8 @@ export async function goToGoal(bot, goal) {
         (Number.isFinite(goal.x) && Number.isFinite(goal.y) && Number.isFinite(goal.z) ? goal : bot.entity.position);
     if (bot.managedGoal?.active && !(bot.modes.getActiveModes?.() || []).some(name =>
         ['self_preservation', 'cowardice', 'self_defense'].includes(name))) {
-        const range = Number.isFinite(goal.rangeSq) ? Math.sqrt(goal.rangeSq) : 0;
-        if (!await managedTravel(bot, destination, range) && !bot.interrupt_code)
+        if (!await walkSafely(bot, destination, { goal, movements: () => navigationMovements(bot),
+            prepareTravel: p => prepareManagedTravel(bot, p), log: message => log(bot, message) }) && !bot.interrupt_code)
             throw new Error('Safe navigation blocked; route retries exhausted and managed goal retained');
         return !bot.interrupt_code;
     }
@@ -1269,15 +1269,19 @@ export async function goToGoal(bot, goal) {
 
     const doorCheckInterval = startDoorInterval(bot);
 
-    bot.pathfinder.setMovements(final_movements);
     try {
-        await bot.pathfinder.goto(goal);
+        const result = await gotoWithProgress(bot, goal, final_movements, { log: message => log(bot, message) });
+        if (result.success) return true;
+        if (bot.interrupt_code || ['death', 'disconnected', 'world_changed', 'dimension_changed', 'superseded', 'goal_changed', 'path_stopped'].includes(result.reason))
+            return false;
+        if (['no_progress', 'physical_stall'].includes(result.reason)) {
+            log(bot, 'Trying a supported detour while retaining the navigation destination.');
+            if (await walkSafely(bot, destination, { goal, movements: () => navigationMovements(bot), log: message => log(bot, message) }))
+                return true;
+        }
+        throw new Error(`Navigation stopped (${result.reason}); arrival was not verified. Destination retained for reassessment.`);
+    } finally {
         clearInterval(doorCheckInterval);
-        return true;
-    } catch (err) {
-        clearInterval(doorCheckInterval);
-        // we need to catch so we can clean up the door check interval, then rethrow the error
-        throw err;
     }
 }
 
@@ -1387,10 +1391,10 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
     const progressInterval = setInterval(checkDigProgress, 1000);
     
     try {
-        await goToGoal(bot, new pf.goals.GoalNear(x, y, z, min_distance));
+        const arrived = await goToGoal(bot, new pf.goals.GoalNear(x, y, z, min_distance));
         clearInterval(progressInterval);
         const distance = bot.entity.position.distanceTo(new Vec3(x, y, z));
-        if (distance <= min_distance+1) {
+        if (arrived && distance <= min_distance+1) {
             log(bot, `You have reached at ${x}, ${y}, ${z}.`);
             return true;
         }
@@ -1493,9 +1497,9 @@ export async function goToPlayer(bot, username, distance=3) {
     distance = Math.max(distance, 0.5);
     const goal = new pf.goals.GoalFollow(player, distance);
 
-    await goToGoal(bot, goal, true);
-
+    if (!await goToGoal(bot, goal)) return false;
     log(bot, `You have reached ${username}.`);
+    return true;
 }
 
 
