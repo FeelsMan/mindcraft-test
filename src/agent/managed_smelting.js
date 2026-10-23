@@ -100,6 +100,10 @@ export class ManagedFurnace {
         return block;
     }
     read(window) {
+        if (this.windowContext?.window === window && !this.windowContext.valid()) {
+            this.snapshot = null;
+            throw new Error('Furnace changed or became unloaded while open; contents must be inspected again.');
+        }
         this.snapshot = {
             input: itemData(window.inputItem()), fuel: itemData(window.fuelItem()), output: itemData(window.outputItem()),
             burnTicks: Math.max(0, Math.round((Number(window.fuelSeconds) || 0) * 20)),
@@ -115,8 +119,12 @@ export class ManagedFurnace {
         const previous = this.bot.smeltingActivity;
         const token = { active: true };
         this.bot.smeltingActivity = token;
+        const record = this.record;
+        const context = { window: null, valid: () => this.record === record && record?.dimension === dimension(this.bot) &&
+            this.api.blockAt(record.position)?.name === 'furnace' };
         try {
             window = await this.api.open(block);
+            context.window = window; this.windowContext = context;
             await sleep(this.settleMs);
             if (this.bot.interrupt_code) return false;
             this.read(window);
@@ -124,7 +132,8 @@ export class ManagedFurnace {
         } finally {
             try {
                 if (window) {
-                    this.read(window);
+                    if (context.valid()) this.read(window);
+                    else this.snapshot = null;
                     // close() also emits the event that removes Mineflayer's
                     // craft_progress_bar listener. closeWindow() alone does not.
                     if (this.bot.currentWindow === window) await window.close();
@@ -132,6 +141,7 @@ export class ManagedFurnace {
                 }
             } finally {
                 token.active = false;
+                if (this.windowContext === context) this.windowContext = null;
                 if (this.bot.smeltingActivity === token) this.bot.smeltingActivity = previous;
             }
         }

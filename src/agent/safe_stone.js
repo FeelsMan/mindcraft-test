@@ -79,60 +79,71 @@ export async function collectLogFromSide(bot, candidates, api) {
 
 async function collectFromSide(bot, candidates, api, standingPositions, matches) {
     const deadline = Date.now() + 5000;
-    for (const candidate of candidates) {
-        for (const feet of standingPositions(bot, candidate)) {
-            if (Date.now() >= deadline) break;
-            if (bot.interrupt_code) return false;
-            const movements = safeMiningMovements(api.movements());
-            const destination = new pf.goals.GoalBlock(feet.x, feet.y, feet.z);
-            if (bot.entity.position.distanceTo(feet.offset(0.5, 0, 0.5)) >= 0.8) {
-                const path = await planSafePath(bot, movements, destination, 150);
-                if (path.status !== 'success') { await new Promise(resolve => setTimeout(resolve, 0)); continue; }
-                await api.prepareTravel?.(feet);
+    for (const remembered of candidates) {
+        const candidate = bot.blockAt(remembered.position);
+        if (!matches(candidate)) continue;
+        bot.worldMemory?.observe(candidate);
+        const unwatch = bot.worldMemory?.watchTarget(candidate, matches);
+        try {
+            for (const feet of standingPositions(bot, candidate)) {
+                if (Date.now() >= deadline) break;
                 if (bot.interrupt_code) return false;
-                bot.pathfinder.setMovements(movements);
-                try {
-                    if (api.travel) { if (!await api.travel(feet)) continue; }
-                    else await bot.pathfinder.goto(destination);
-                }
-                catch (error) {
+                if (!matches(bot.blockAt(candidate.position))) break;
+                const movements = safeMiningMovements(api.movements());
+                const destination = new pf.goals.GoalBlock(feet.x, feet.y, feet.z);
+                if (bot.entity.position.distanceTo(feet.offset(0.5, 0, 0.5)) >= 0.8) {
+                    const path = await planSafePath(bot, movements, destination, 150);
+                    if (path.status !== 'success') { await new Promise(resolve => setTimeout(resolve, 0)); continue; }
+                    if (!matches(bot.blockAt(candidate.position))) break;
+                    await api.prepareTravel?.(feet);
                     if (bot.interrupt_code) return false;
-                    api.log?.('Safe stone approach blocked: ' + error.message);
-                    continue;
+                    bot.pathfinder.setMovements(movements);
+                    try {
+                        if (api.travel) { if (!await api.travel(feet)) continue; }
+                        else await bot.pathfinder.goto(destination);
+                    }
+                    catch (error) {
+                        if (bot.interrupt_code) return false;
+                        api.log?.('Safe stone approach blocked: ' + error.message);
+                        continue;
+                    }
+                } else bot.pathfinder.setMovements(movements);
+                if (bot.interrupt_code) return false;
+                let block = bot.blockAt(candidate.position);
+                const current = bot.entity.position;
+                if (!matches(block) || sameColumn(current, block.position) ||
+                    !standingPositions(bot, block).some(p => current.distanceTo(p.offset(0.5, 0, 0.5)) < 0.8)) continue;
+                if (!api.canBreak(block)) continue;
+                await bot.tool.equipForBlock(block);
+                if (bot.interrupt_code) return false;
+                block = bot.blockAt(candidate.position);
+                if (!matches(block) || !api.canBreak(block) || !standingPositions(bot, block).some(p =>
+                    current.distanceTo(p.offset(0.5, 0, 0.5)) < 0.8)) continue;
+                if (!block.canHarvest(bot.heldItem?.type ?? null)) {
+                    api.log?.('A usable harvesting tool is required for this block.');
+                    return false;
                 }
-            } else bot.pathfinder.setMovements(movements);
-            if (bot.interrupt_code) return false;
-            const block = bot.blockAt(candidate.position);
-            const current = bot.entity.position;
-            if (!matches(block) || sameColumn(current, block.position) ||
-                !standingPositions(bot, block).some(p => current.distanceTo(p.offset(0.5, 0, 0.5)) < 0.8)) continue;
-            if (!api.canBreak(block)) continue;
-            await bot.tool.equipForBlock(block);
-            if (bot.interrupt_code) return false;
-            if (!block.canHarvest(bot.heldItem?.type ?? null)) {
-                api.log?.('A usable harvesting tool is required for this block.');
-                return false;
+                await bot.dig(block, true);
+                if (bot.interrupt_code) return false;
+                // A side position can be just outside automatic pickup range.
+                // Enter the cleared block only when it has headroom and a solid
+                // floor; never dig another block or place a scaffold for pickup.
+                const cleared = block.position;
+                if (empty(bot.blockAt(cleared)) && empty(bot.blockAt(cleared.offset(0, 1, 0))) &&
+                    solid(bot.blockAt(cleared.offset(0, -1, 0)))) {
+                    try {
+                        if (api.travel) await api.travel(cleared);
+                        else await bot.pathfinder.goto(new pf.goals.GoalBlock(cleared.x, cleared.y, cleared.z));
+                    }
+                    catch (error) {
+                        if (bot.interrupt_code) return false;
+                        api.log?.('Stone drop approach blocked: ' + error.message);
+                    }
+                }
+                api.log?.('Mined ' + block.name + ' from a supported side position; recipe materials remain reserved.');
+                return true;
             }
-            await bot.dig(block, true);
-            if (bot.interrupt_code) return false;
-            // A side position can be just outside automatic pickup range.
-            // Enter the cleared block only when it has headroom and a solid
-            // floor; never dig another block or place a scaffold for pickup.
-            const cleared = block.position;
-            if (empty(bot.blockAt(cleared)) && empty(bot.blockAt(cleared.offset(0, 1, 0))) &&
-                solid(bot.blockAt(cleared.offset(0, -1, 0)))) {
-                try {
-                    if (api.travel) await api.travel(cleared);
-                    else await bot.pathfinder.goto(new pf.goals.GoalBlock(cleared.x, cleared.y, cleared.z));
-                }
-                catch (error) {
-                    if (bot.interrupt_code) return false;
-                    api.log?.('Stone drop approach blocked: ' + error.message);
-                }
-            }
-            api.log?.('Mined ' + block.name + ' from a supported side position; recipe materials remain reserved.');
-            return true;
-        }
+        } finally { unwatch?.(); }
     }
     api.log?.('No safely reachable exposed resource in this area; checking recovery options.');
     return false;

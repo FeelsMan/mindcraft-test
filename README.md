@@ -26,6 +26,7 @@ Mia builds on Mindcraft's existing LLM interfaces, Mineflayer skills, profiles, 
 | Bounded unavailable-command retries | Disabled commands are filtered from the model's available tools and rejected at execution. Repeated unavailable requests pause automatic commands with a report. |
 | Recovery and evidence checks | Action handoffs and PvP cleanup are coordinated; death recovery records the actual death position. Live inventory and tool results take precedence over old conversation claims. |
 | Local retrieval memory | SQLite stores verified outcomes, resource areas, named places, owned stations, and failure cooldowns. Optional loopback Ollama embeddings supplement keyword retrieval within a bounded prompt budget. |
+| Live world-to-memory synchronization | Received block/chunk updates refresh remembered stations, exact observed resource blocks and the saved shelter. Removed stations invalidate cached contents; changed targets/routes are rechecked; relevant changes discard stale model decisions. History remains separate. See [world memory](docs/mia-world-memory.md). |
 | Persistent managed targets | A configured world ID lets unfinished crafting/collection goals replan after restart or respawn. Explicit cancellation persists; blocked/completed goals do not automatically restart. |
 | Coordinated process restart and cancellation | Pending dashboard restarts share one replacement, stale sockets cannot clear the new connection, and repeated collection interrupts share one cancellation instead of accumulating listeners. |
 
@@ -158,7 +159,7 @@ Supported oak/wooden/stone `!craftRecipe` requests also use the managed planner.
 Their count remains **additional recipe batches**: `!craftRecipe("stick", 1)`
 produces four additional sticks. Use `!makeGoal("stick", 4)` to keep four total.
 See [inventory grounding, quantities and completion reports](docs/mia-crafting-reliability.md).
-Existing Mia folders can use the [current reversible source installer](scripts/mia-shelter-door-fix.cjs); installation and rollback commands are in the [shelter guide](docs/mia-shelter.md).
+Existing Mia folders can use the [current reversible source installer](scripts/mia-live-world-memory-fix.cjs); installation, rollback and live tests are in the [world memory guide](docs/mia-world-memory.md).
 
 | Command | Supported targets |
 | --- | --- |
@@ -173,7 +174,7 @@ During a managed goal:
 | --- | --- |
 | `!inventory` | Check the actual inventory. |
 | `!stats` | Check health, hunger, location, and other current stats. |
-| `!memory` | Inspect the current world's historical outcomes, locations, and saved goal. |
+| `!memory` | Inspect this world's historical outcomes, saved goal and current observed station/shelter states. |
 | `!endGoal` or `!stop` | Cancel the goal, including while it is paused for combat. |
 
 Mia stops after verified completion. Combat and escape can interrupt her, after which she resumes the same target. With a world ID configured, death/restart can restore the target and replan from current inventory. Repeated failures block the goal; two deaths prevent automatic continuation. Use `!resumeGoal` after addressing a blockage; explicit resume renews the first blocked step's bounded attempt. Automatic recovery still observes cooldowns. Use `!resetShelter` only when abandoning the saved building site. `!stop` and `!endGoal` persist cancellation.

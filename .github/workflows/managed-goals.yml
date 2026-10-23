@@ -10,6 +10,7 @@ on:
       - mia/shelter-builder-2026-10-18
       - mia/shelter-placement-2026-10-18
       - mia/shelter-door-2026-10-23
+      - mia/live-world-memory-2026-10-23
   pull_request:
     paths:
       - 'src/**'
@@ -63,8 +64,8 @@ jobs:
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:
-          name: mia-shelter-door-fix
-          path: scripts/mia-shelter-door-fix.cjs
+          name: mia-live-world-memory-fix
+          path: scripts/mia-live-world-memory-fix.cjs
           if-no-files-found: error
           retention-days: 30
 
@@ -87,7 +88,7 @@ jobs:
           New-Item -ItemType Directory -Force node_modules | Out-Null
           Copy-Item -Recurse -Path (Join-Path $deps "node_modules/vec3") -Destination "node_modules/vec3"
       - name: SQLite memory regressions on Windows
-        run: node --test test/local-memory.test.js
+        run: node --test test/local-memory.test.js test/world-memory-sync.test.js
 
   windows-interactions:
     runs-on: windows-latest

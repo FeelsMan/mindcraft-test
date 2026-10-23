@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const kinds = new Set(['gather', 'craft', 'smelt', 'recover', 'place', 'clear', 'finish', 'goal_complete', 'goal_failed', 'death']);
+const kinds = new Set(['gather', 'craft', 'smelt', 'recover', 'place', 'clear', 'finish', 'goal_complete', 'goal_failed', 'death', 'world_change']);
 const clean = (value, max = 400) => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, max);
 export const validPosition = p => p && [p.x, p.y, p.z].every(Number.isFinite) &&
     Math.abs(p.x) <= 30000000 && Math.abs(p.z) <= 30000000 && Math.abs(p.y) <= 4096;
@@ -86,6 +86,8 @@ export class LocalMemoryStore {
         // Resource areas are a small working map, rather than a log of every block.
         this.db.exec(`DELETE FROM locations WHERE kind='resource' AND rowid NOT IN
             (SELECT rowid FROM locations WHERE kind='resource' ORDER BY updated DESC LIMIT 500)`);
+        this.db.exec(`DELETE FROM locations WHERE kind IN ('resource_block','seen_station') AND rowid NOT IN
+            (SELECT rowid FROM locations WHERE kind IN ('resource_block','seen_station') ORDER BY updated DESC LIMIT 128)`);
     }
 
     candidates(world, dimension, query, limit = 50) {

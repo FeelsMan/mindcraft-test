@@ -15,6 +15,9 @@ import { modeAllowedDuringGoal, sleep } from '../src/agent/managed_goal.js';
 import { supportedStationSpace } from '../src/agent/station_access.js';
 import { installLocalMemory } from '../src/agent/memory_runtime.js';
 import { safeMiningMovements } from '../src/agent/navigation_policy.js';
+import { captureWorld, worldChanged } from '../src/agent/live_inventory.js';
+import { collectIronFromSide } from '../src/agent/safe_stone.js';
+import { walkSafely } from '../src/agent/navigation_recovery.js';
 
 function memoryFixture(t, f, root = mkdtempSync(join(tmpdir(), 'mia-shelter-'))) {
     const connections = [];
@@ -37,6 +40,44 @@ function built(f, doorProperties = {}) {
     f.set(plan.door.offset(0, 1, 0), 'oak_door', { ...properties, half: 'upper' });
     return plan;
 }
+
+for (const version of ['1.21.4', '26.3']) test(`world memory notices actual ${version} door changes and still verifies the existing entrance`, async t => {
+    const f = shelterWorld(version), plan = built(f, { facing: 'east' });
+    const { memory } = memoryFixture(t, f); memory.saveShelter(f.record);
+    const before = captureWorld(f.bot), old = f.bot.blockAt(plan.door);
+    for (const dy of [0, 1]) {
+        const p = plan.door.offset(0, dy, 0), prior = f.bot.blockAt(p);
+        f.set(p, 'oak_door', { ...prior.getProperties(), open: true });
+        f.bot.world.emit('blockUpdate', prior, f.bot.blockAt(p));
+    }
+    assert.notEqual(old.stateId, f.bot.blockAt(plan.door).stateId);
+    assert(worldChanged(f.bot, before));
+    assert.equal(memory.worldSync.status('owned:shelter'), 'present');
+    const goal = await start(f); assert.match(await goal.done, /Shelter complete/);
+    assert(inspectShelter(f.bot, f.record).structureComplete); assert(shelterDoor(f.bot, f.record).sealed);
+    assert.equal(f.calls.filter(c => ['dig', 'place', 'craft', 'gather'].includes(c[0])).length, 0);
+});
+
+test('the native mining path skips a disappeared ore target and mines the next actual block', async t => {
+    const f = shelterWorld('26.3', { stone_pickaxe: 1 }); memoryFixture(t, f);
+    const a = new Vec3(4, 64, 2), b = new Vec3(8, 64, 2);
+    f.set(a, 'iron_ore'); f.set(b, 'deepslate_iron_ore');
+    f.bot.tool = { equipForBlock: async () => { f.bot.heldItem = { type: f.data.itemsByName.stone_pickaxe.id }; } };
+    let removed = false;
+    const result = await collectIronFromSide(f.bot, [f.bot.blockAt(a), f.bot.blockAt(b)], {
+        movements: f.travel.movements, canBreak: () => true,
+        travel: async feet => {
+            if (!removed) {
+                removed = true; const old = f.bot.blockAt(a); f.set(a, 'air'); f.bot.world.emit('blockUpdate', old, f.bot.blockAt(a));
+                return false;
+            }
+            return walkSafely(f.bot, feet, f.travel);
+        }
+    });
+    assert.equal(result, true);
+    const digs = f.calls.filter(c => c[0] === 'dig');
+    assert.equal(digs.length, 1); assert(digs[0][2].equals(b)); assert.equal(f.bot.worldMemory.target, null);
+});
 
 test('fixed shelter has 55 shell/roof blocks plus three supported access steps, doorway and 3x3 interior', () => {
     const f = shelterWorld(), plan = shelterBlueprint(f.record), prior = new Set();

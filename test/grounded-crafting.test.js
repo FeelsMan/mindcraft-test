@@ -2,6 +2,13 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { captureInventory, captureWorld, inventoryContext, worldContext, groundInventory, inventoryChanged } from '../src/agent/live_inventory.js';
 import { reportManagedGoal } from '../src/agent/managed_goal_report.js';
+import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Vec3 from 'vec3';
+import { installLocalMemory } from '../src/agent/memory_runtime.js';
+import { MemoryBank } from '../src/agent/memory_bank.js';
 
 mock.module(new URL('../src/models/_model_map.js', import.meta.url).href, {
     namedExports: { selectAPI() {}, createModel() {} }
@@ -31,6 +38,65 @@ function promptFixture(f, sendRequest) {
         _saveLog: async () => {}, chat_model: { sendRequest }
     };
 }
+
+function observedFixture(t) {
+    const f = fixture(), root = mkdtempSync(join(tmpdir(), 'mia-observed-prompt-'));
+    const bot = f.agent.bot = Object.assign(new EventEmitter(), f.agent.bot);
+    bot.world = new EventEmitter(); bot.game = { dimension: 'overworld' };
+    bot.entity = { position: new Vec3(0.5, 64, 0.5), yaw: 0, pitch: 0 };
+    bot.registry = { blocksByName: { furnace: { id: 1 } } };
+    let furnace = { name: 'furnace', position: new Vec3(3, 64, 0) };
+    bot.blockAt = p => p.x === 3 && p.y === 64 && p.z === 0 ? furnace : { name: 'air', position: p };
+    bot.findBlocks = () => furnace?.name === 'furnace' ? [furnace.position] : [];
+    bot.blockAtCursor = () => furnace;
+    f.agent.memory_bank = new MemoryBank();
+    const memory = installLocalMemory(f.agent, { root, config: { world_id: 'test-world', embeddings: false } });
+    t.after(() => { memory.close(); rmSync(root, { recursive: true, force: true }); });
+    return { ...f, bot, remove() {
+        const old = furnace; furnace = { name: 'air', position: old.position };
+        bot.world.emit('blockUpdate', old, furnace);
+    } };
+}
+
+test('a block removed during model generation discards its stale response and supplies the missing location', async t => {
+    const f = observedFixture(t); let calls = 0;
+    const fake = promptFixture(f, async messages => {
+        if (++calls === 1) { f.remove(); return 'Use the old furnace'; }
+        assert.doesNotMatch(messages.at(-1).content, /^- furnace at /m);
+        assert.match(messages.at(-1).content, /seen_station.*missing/);
+        return 'The old furnace is gone; replan the station.';
+    });
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'The old furnace is gone; replan the station.');
+    assert.equal(calls, 2);
+});
+
+test('a block change during model-log persistence also suppresses the already generated stale decision', async t => {
+    const f = observedFixture(t); let calls = 0, logs = 0;
+    const fake = promptFixture(f, async () => ++calls === 1 ? 'Use the old furnace' : 'Reassess the missing furnace');
+    fake._saveLog = async () => { if (++logs === 1) f.remove(); };
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Reassess the missing furnace');
+    assert.equal(calls, 2);
+});
+
+test('teleport refreshes the real position before accepting a conversational decision', async t => {
+    const f = observedFixture(t); let calls = 0;
+    const fake = promptFixture(f, async messages => {
+        if (++calls === 1) { f.bot.entity.position = new Vec3(9.5, 65, 9.5); f.bot.emit('forcedMove'); return 'Stay at the old coordinates'; }
+        assert.match(messages.at(-1).content, /feet position: 9.5, 65, 9.5/); return 'Use the current position';
+    });
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Use the current position'); assert.equal(calls, 2);
+});
+
+test('ordinary movement and unrelated terrain changes keep a conversational decision usable', async t => {
+    const f = observedFixture(t); let calls = 0;
+    const fake = promptFixture(f, async () => {
+        calls++; f.bot.entity.position.x += 0.1; f.bot.emit('move');
+        f.bot.world.emit('blockUpdate', { name: 'air', position: new Vec3(40, 64, 40) },
+            { name: 'short_grass', position: new Vec3(40, 64, 40) });
+        return 'Ready';
+    });
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Ready'); assert.equal(calls, 1);
+});
 
 test('giving an axe away replaces old inventory with an explicit current absence on every model request', async () => {
     const f = fixture();

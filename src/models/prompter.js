@@ -1,4 +1,4 @@
-import { captureInventory, captureWorld, groundInventory, inventoryChanged } from '../agent/live_inventory.js';
+import { captureInventory, captureWorld, groundInventory, inventoryChanged, worldChanged } from '../agent/live_inventory.js';
 import { readFileSync, mkdirSync, writeFileSync} from 'fs';
 import { Examples } from '../utils/examples.js';
 import { getCommandDocs } from '../agent/commands/index.js';
@@ -249,10 +249,11 @@ export class Prompter {
 
             try {
                 const inventory = captureInventory(this.agent.bot);
-                const grounded = groundInventory(messages, inventory, captureWorld(this.agent.bot));
+                const world = captureWorld(this.agent.bot);
+                const grounded = groundInventory(messages, inventory, world);
                 generation = await this.chat_model.sendRequest(grounded, prompt);
-                if (inventoryChanged(this.agent.bot, inventory)) {
-                    console.log('[Mia live state] Inventory or dimension changed during generation; refreshing the decision.');
+                if (inventoryChanged(this.agent.bot, inventory) || worldChanged(this.agent.bot, world)) {
+                    console.log('[Mia live state] Relevant world or inventory state changed during generation; refreshing the decision.');
                     continue;
                 }
                 if (typeof generation !== 'string') {
@@ -261,7 +262,7 @@ export class Prompter {
                 }
                 console.log("Generated response:", generation);
                 await this._saveLog(prompt, grounded, generation, 'conversation');
-                if (inventoryChanged(this.agent.bot, inventory)) continue;
+                if (inventoryChanged(this.agent.bot, inventory) || worldChanged(this.agent.bot, world)) continue;
 
             } catch (error) {
                 console.error('Error during message generation or file writing:', error);

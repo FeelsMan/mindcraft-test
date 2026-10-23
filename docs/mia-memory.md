@@ -1,5 +1,11 @@
 # Mia local memory
 
+The [live world-to-memory update](mia-world-memory.md) adds event-driven current
+observations alongside this historical store. Loaded station removal, exact
+resource depletion, shelter changes and teleports invalidate stale state and
+decisions; unloaded chunks remain unknown. Use the new guide for the current
+installer and live checks.
+
 The memory update adds a local SQLite store for verified managed-goal outcomes,
 failed attempts, owned crafting tables, resource areas, and named places. It
 supports the managed crafting/smelting planners and fixed starter shelter builder.

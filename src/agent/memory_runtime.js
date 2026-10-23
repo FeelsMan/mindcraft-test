@@ -5,6 +5,7 @@ import { LocalMemoryStore, cellOf, positionOf, validPosition } from './local_mem
 import { restoredResourceSearch } from './resource_recovery.js';
 import { shelterRecord } from './shelter_blueprint.js';
 import Vec3 from 'vec3';
+import { WorldMemorySync } from './world_memory_sync.js';
 
 const dimensionOf = bot => String(bot.game?.dimension ?? 'unknown');
 const textOf = value => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 400);
@@ -96,6 +97,7 @@ export class AgentMemory {
     saveShelter(record) {
         const valid = shelterRecord(record);
         if (valid) this.safe(() => this.store.putLocation(this.world, this.dimension, 'owned:shelter', 'shelter', valid.origin, valid));
+        if (valid) this.worldSync?.locationSaved('owned:shelter');
     }
     shelter() {
         return this.safe(() => shelterRecord(this.store.getLocation(this.world, this.dimension, 'owned:shelter')?.metadata));
@@ -119,6 +121,7 @@ export class AgentMemory {
                 store.record(world, dimension, { kind: 'site_reset', item: 'shelter', position: record?.origin || this.position,
                     verified: true, text: 'Shelter working site reset. Old blocks remain in the world; this historical location is not the active build site.' });
                 store.db.exec('COMMIT');
+                this.worldSync?.forgetLocation('owned:shelter');
             } catch (error) { store.db.exec('ROLLBACK'); throw error; }
             return true;
         }, false);
@@ -127,11 +130,14 @@ export class AgentMemory {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
         this.safe(() => this.store.putLocation(this.world, record.dimension, 'owned:crafting_table', 'station', record.position,
             { owned: true, pickupMinimum: record.pickupMinimum, pendingPlacement: Boolean(record.pendingPlacement) }));
+        this.worldSync?.locationSaved('owned:crafting_table');
     }
     station() {
         return this.safe(() => {
             const row = this.store.getLocation(this.world, this.dimension, 'owned:crafting_table');
-            if (!row?.metadata.owned || !validPosition(row.position)) return null;
+            if (!row?.metadata.owned || this.worldSync?.owns('owned:crafting_table') === false || !validPosition(row.position)) return null;
+            if (this.worldSync?.status('owned:crafting_table') === 'missing' &&
+                row.metadata.pickupMinimum == null && !row.metadata.pendingPlacement) return null;
             const minimum = row.metadata.pickupMinimum;
             if (minimum !== null && (!Number.isSafeInteger(minimum) || minimum < 1)) return null;
             return { position: row.position, dimension: row.dimension, pickupMinimum: minimum,
@@ -141,8 +147,10 @@ export class AgentMemory {
     forgetStation(record) {
         this.safe(() => {
             const existing = this.store.getLocation(this.world, record.dimension, 'owned:crafting_table');
-            if (existing && JSON.stringify(existing.position) === JSON.stringify(record.position))
+            if (existing && JSON.stringify(existing.position) === JSON.stringify(record.position)) {
                 this.store.deleteLocation(this.world, record.dimension, 'owned:crafting_table');
+                this.worldSync?.forgetLocation('owned:crafting_table');
+            }
         });
     }
 
@@ -150,26 +158,32 @@ export class AgentMemory {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;
         this.safe(() => this.store.putLocation(this.world, this.dimension, 'owned:furnace', 'furnace', record.position,
             { owned: true, pendingPlacement: Boolean(record.pendingPlacement) }));
+        this.worldSync?.locationSaved('owned:furnace');
     }
     furnace() {
         return this.safe(() => {
             const row = this.store.getLocation(this.world, this.dimension, 'owned:furnace');
-            return row?.metadata.owned && validPosition(row.position) ?
+            if (this.worldSync?.status('owned:furnace') === 'missing' && !row?.metadata.pendingPlacement) return null;
+            return row?.metadata.owned && this.worldSync?.owns('owned:furnace') !== false && validPosition(row.position) ?
                 { position: row.position, dimension: row.dimension, pendingPlacement: Boolean(row.metadata.pendingPlacement) } : null;
         });
     }
     forgetFurnace(record) {
         this.safe(() => {
             const existing = this.store.getLocation(this.world, record.dimension, 'owned:furnace');
-            if (existing && JSON.stringify(existing.position) === JSON.stringify(record.position))
+            if (existing && JSON.stringify(existing.position) === JSON.stringify(record.position)) {
                 this.store.deleteLocation(this.world, record.dimension, 'owned:furnace');
+                this.worldSync?.forgetLocation('owned:furnace');
+            }
         });
     }
 
     resourceLocations(item) {
         const p = this.position;
         if (!p) return [];
-        return this.safe(() => this.store.locations(this.world, this.dimension, 'resource')
+        return this.safe(() => [...this.store.locations(this.world, this.dimension, 'resource'),
+            ...this.store.locations(this.world, this.dimension, 'resource_block')
+                .filter(row => (this.worldSync?.observedStatus(row.name) || row.metadata.observation?.status) !== 'missing')]
             .filter(row => row.metadata.item === item && validPosition(row.position))
             .sort((a, b) => Math.hypot(a.position.x - p.x, a.position.y - p.y, a.position.z - p.z) -
                 Math.hypot(b.position.x - p.x, b.position.y - p.y, b.position.z - p.z))
@@ -210,6 +224,7 @@ export class AgentMemory {
         });
     }
     finishGoal(goal, complete, report) {
+        if (complete) this.worldSync?.refresh();
         const reason = goal.cancelReason;
         const status = complete ? 'complete' : reason === 'death' && goal.memoryDeaths >= 2 ? 'blocked' :
             ['death', 'disconnect', 'dimension'].includes(reason) ? 'paused' :
@@ -245,6 +260,7 @@ export class AgentMemory {
             evidence.push([furnace?.record?.position || null, view?.input || null, view?.fuel || null,
                 view?.output || null, Boolean(view?.burnTicks > 0)]);
         }
+        if (this.worldSync) evidence.push(this.worldSync.evidenceFor(step));
         return createHash('sha256').update(JSON.stringify(evidence)).digest('hex');
     }
     beginStep(goal, step) {
@@ -356,24 +372,32 @@ export class AgentMemory {
 
     summary() {
         if (!this.enabled || this.closed) return 'Local memory is disabled or unavailable.';
+        this.worldSync?.refresh();
+        this.worldSync?.flush();
         const stats = this.safe(() => this.store.stats(this.world, this.dimension));
         if (!stats) return 'Local memory is unavailable.';
         const goal = stats.goal;
         return `Local memory: ${this.worldLabel}, ${this.dimension}. ${stats.experiences} verified outcome/failure records; ${stats.locations.length} saved locations.\n` +
             (goal ? `Last managed goal: ${goal.kind} ${goal.target} ${goal.item} (${goal.status}).\n` : 'No saved managed goal.\n') +
-            stats.locations.slice(0, 5).map(r => `${r.name}: ${JSON.stringify(r.position)} (historical; recheck)`).join('\n');
+            stats.locations.slice(0, 5).map(r => `${r.name}: ${JSON.stringify(r.position)} (historical; recheck)`).join('\n') +
+            (this.worldSync ? '\nCurrent world-to-memory observations:\n' + (this.worldSync.lines().join('\n') || 'No tracked locations in this dimension.') : '');
     }
-    close() { if (!this.closed) { this.closed = true; try { this.store?.close(); } catch {} } }
+    close() { if (!this.closed) { this.worldSync?.close(); this.installCleanup?.(); this.closed = true; try { this.store?.close(); } catch {} } }
 }
 
 export function installLocalMemory(agent, options = {}) {
+    agent.local_memory?.close();
     agent.memory_bank.agent = agent;
     agent.memory_bank.worldScoped = true;
     try {
         const memory = new AgentMemory(agent, options);
         agent.local_memory = memory;
         agent.bot.localMemory = memory;
-        agent.bot.on('death', () => {
+        if (memory.enabled) {
+            memory.worldSync = new WorldMemorySync(memory, options.worldSync);
+            agent.bot.worldMemory = memory.worldSync;
+        }
+        const onDeath = () => {
             const goal = agent.gather_goal;
             if (goal?.active) {
                 goal.cancelReason = 'death';
@@ -385,11 +409,13 @@ export function installLocalMemory(agent, options = {}) {
             if (station?.pickupMinimum != null) memory.forgetStation(station);
             memory.record({ kind: 'death', item: '', position: memory.position, verified: true,
                 text: `Actual death observed near ${JSON.stringify(memory.position)}. Historical hazard; assess current surroundings.` });
-        });
-        agent.bot.once('end', () => {
+        };
+        const onEnd = () => {
             if (agent.gather_goal?.active) { agent.gather_goal.cancelReason = 'disconnect'; memory.checkpoint(agent.gather_goal, 'paused', 'Disconnected; replan after reconnect'); }
             memory.close();
-        });
+        };
+        agent.bot.on('death', onDeath); agent.bot.once('end', onEnd);
+        memory.installCleanup = () => { agent.bot.removeListener('death', onDeath); agent.bot.removeListener('end', onEnd); };
         return memory;
     } catch (error) {
         console.warn('[Mia memory] Could not open local memory; existing gameplay continues. ' + error.message);

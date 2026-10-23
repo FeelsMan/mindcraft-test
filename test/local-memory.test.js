@@ -55,7 +55,9 @@ function fixture(t, root = directory(t), initial = {}, options = {}) {
     bot.inventory = { items: () => Object.entries(stock).filter(([, count]) => count > 0).map(([name, count]) => ({ name, count })) };
     bot.modes = { getActiveModes: () => [] };
     bot.output = '';
-    bot.blockAt = () => ({ name: 'air' });
+    // This fixture has no loaded world. Individual station APIs below provide
+    // their observed block; an absent world must not invent loaded air.
+    bot.blockAt = () => null;
     const agent = {
         name: 'Mia', bot, memory_bank: new MemoryBank(), messages: [],
         prompter: { profile: {} },
