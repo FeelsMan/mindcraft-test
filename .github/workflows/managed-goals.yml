@@ -103,4 +103,6 @@ jobs:
         run: |
           node scripts/install-native-minecraft.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node node_modules/patch-package/index.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js test/grounded-crafting.test.js

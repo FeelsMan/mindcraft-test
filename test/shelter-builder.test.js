@@ -449,3 +449,19 @@ test('unloaded halves and unknown door geometry stay unverified with a specific 
         assert.equal(f.calls.length, 0);
     }
 });
+
+test('automatic door opening cannot retoggle an already clear owned passage', async () => {
+    const f = shelterWorld('26.3'), plan = built(f, { facing: 'east', open: true });
+    f.bot.shelterSite = { dimension: 'overworld', record: f.record };
+    const base = f.travel.movements;
+    f.travel.movements = () => {
+        const moves = base();
+        moves.canOpenDoors = true;
+        moves.openable.add(f.data.blocksByName.oak_door.id);
+        return moves;
+    };
+    await prepareShelterTravel(f.bot, plan.outside, f.travel);
+    assert(f.bot.entity.position.floored().equals(plan.outside));
+    assert(shelterDoor(f.bot, f.record).sealed);
+    assert.deepEqual(f.calls.filter(c => c[0] === 'door').map(c => c[1]), [false, true]);
+});

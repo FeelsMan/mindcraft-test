@@ -292,6 +292,10 @@ function openDoorTravel(bot, record, api) {
                 [plan.door.y, plan.door.y + 1].includes(block.position?.y) &&
                 block.name === 'oak_door' && shelterDoor(bot, record).passable) {
                 block.safe = true; block.physical = false;
+                // The repository's patched pathfinder otherwise schedules a
+                // use action for a sideways door whose native open flag is
+                // false, even though its panel already leaves passage clear.
+                block.openable = false;
                 block.height = block.position.y;
             }
             return block;
