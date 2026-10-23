@@ -9,6 +9,7 @@ on:
       - mia/nearby-interactions-2026-10-18
       - mia/shelter-builder-2026-10-18
       - mia/shelter-placement-2026-10-18
+      - mia/shelter-door-2026-10-23
   pull_request:
     paths:
       - 'src/**'
@@ -62,8 +63,8 @@ jobs:
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:
-          name: mia-world-awareness-fix
-          path: scripts/mia-world-awareness-fix.cjs
+          name: mia-shelter-door-fix
+          path: scripts/mia-shelter-door-fix.cjs
           if-no-files-found: error
           retention-days: 30
 

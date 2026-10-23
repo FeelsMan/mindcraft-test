@@ -112,10 +112,10 @@ export async function startShelterGoal(agent, api) {
                 }
                 if (step.type === 'finish' && result.success && verified) {
                     const final = build.inspect(bot, goal.shelter);
-                    if (!final.structureComplete || final.doorState.open) throw new Error('Shelter changed during final verification.');
+                    if (!final.structureComplete || !final.doorState.sealed) throw new Error('Shelter changed during final verification.');
                     completed = true;
                     agent.local_memory?.rememberPlace('home', final.inside);
-                    report = 'Shelter complete: 58 oak-plank blocks (55 shell/roof, 3 access steps) and a two-block oak door verified. Entrance tested, door closed, and home saved at ' + final.inside + '.';
+                    report = 'Shelter complete: 58 oak-plank blocks (55 shell/roof, 3 access steps) and a two-block oak door verified. Entrance tested, doorway closed, and home saved at ' + final.inside + '.';
                     break;
                 }
             }

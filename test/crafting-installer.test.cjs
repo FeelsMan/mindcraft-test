@@ -5,12 +5,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const repository = path.resolve(__dirname, '..');
-const namedInstaller = path.join(repository, 'scripts/mia-world-awareness-fix.cjs');
+const namedInstaller = path.join(repository, 'scripts/mia-shelter-door-fix.cjs');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 // --test must validate the file actually launched by the user, even when an
 // older installer remains elsewhere in their Mindcraft folder.
 const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(namedInstaller) ? namedInstaller :
-    fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-world-awareness-fix.cjs'));
+    fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-shelter-door-fix.cjs'));
 const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
 const prior = '5f53ba3a859b9b2353af2491bc8ed320fecb377a';
@@ -224,6 +224,23 @@ test('the published shelter build receives the world-awareness update and restor
         assertPrivateUnchanged(f);
         assert.match(fs.readFileSync(path.join(f.root, 'src/agent/live_inventory.js'), 'utf8'), /CURRENT WORLD OBSERVATION/);
         assert.match(fs.readFileSync(path.join(f.root, 'src/agent/commands/actions.js'), 'utf8'), /!resetShelter/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('the published world-awareness build upgrades door recognition and restores exact bytes while preserving saved progress', {
+    skip: !gitFile('71b0308747a891404986a4623e65606f9a9d2639', 'package.json')
+}, () => {
+    const f = fixture('71b0308747a891404986a4623e65606f9a9d2639');
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/shelter_building.js'), 'utf8'), /geometryKnown/);
         ok(run(f, '--restore'));
         for (const [name, bytes] of f.before) {
             if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);

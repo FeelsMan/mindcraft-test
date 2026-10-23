@@ -19,9 +19,26 @@ export function shelterDoor(bot, record) {
     const lower = bot.blockAt(door), upper = bot.blockAt(door.offset(0, 1, 0));
     const a = properties(lower), b = properties(upper);
     const present = lower?.name === 'oak_door' && upper?.name === 'oak_door' &&
-        a.half === 'lower' && b.half === 'upper' && ['north', 'south'].includes(a.facing) &&
-        a.facing === b.facing && a.hinge === b.hinge && a.open === b.open;
-    return { present, open: present && a.open === true };
+        a.half === 'lower' && b.half === 'upper' && ['north', 'south', 'east', 'west'].includes(a.facing) &&
+        a.facing === b.facing && ['left', 'right'].includes(a.hinge) && a.hinge === b.hinge &&
+        typeof a.open === 'boolean' && a.open === b.open;
+    const shapes = [lower, upper].map(block => block?.shapes);
+    const geometryKnown = present && shapes.every(list => Array.isArray(list) && list.length && list.every(s =>
+        Array.isArray(s) && s.length === 6 && s.every(Number.isFinite) &&
+        s.slice(0, 3).every((n, i) => n >= 0 && n < s[i + 3] && s[i + 3] <= 1)));
+    const width = bot.entity?.width > 0 ? bot.entity.width : 0.6;
+    const left = 0.5 - width / 2, right = 0.5 + width / 2;
+    // The north-wall passage crosses Z at the cell's center X. A sideways
+    // door can have vanilla open=false while its panel lies along the wall
+    // and the passage is clear. Judge the real collision shape, not that flag.
+    const passable = Boolean(geometryKnown && shapes.every(list =>
+        list.every(s => s[3] <= left || s[0] >= right)));
+    const sealed = Boolean(geometryKnown && shapes.every(list =>
+        list.some(s => s[0] === 0 && s[3] === 1 && s[1] === 0 && s[4] === 1)));
+    return { present, open: present && a.open, passable, sealed, geometryKnown: Boolean(geometryKnown),
+        anyDoor: lower?.name === 'oak_door' || upper?.name === 'oak_door',
+        detail: 'lower=' + (lower?.name || 'unloaded') + ' ' + JSON.stringify(a) +
+            '; upper=' + (upper?.name || 'unloaded') + ' ' + JSON.stringify(b) };
 }
 
 // Full foundation, interior headroom, doorway and roof are re-observed, not
@@ -29,6 +46,10 @@ export function shelterDoor(bot, record) {
 export function inspectShelter(bot, record, { newSite = false } = {}) {
     const plan = shelterBlueprint(record), expected = new Map(plan.blocks.map(s => [key(s.position), s.item]));
     const missing = [], clear = [], doorState = shelterDoor(bot, record);
+    if (!newSite && doorState.anyDoor && !doorState.present)
+        throw new Error('Existing shelter door at ' + plan.door + ' has incomplete or inconsistent halves; retained for rechecking. ' + doorState.detail);
+    if (!newSite && doorState.present && !doorState.geometryKnown)
+        throw new Error('Existing shelter door at ' + plan.door + ' has unavailable collision shapes; retained for rechecking. ' + doorState.detail);
     for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) {
         const base = plan.origin.offset(x, 0, z);
         if (!fullFloor(bot.blockAt(base.offset(0, -1, 0))))
@@ -240,12 +261,13 @@ export async function clearShelterPlant(bot, record, step, api, active, { verify
     return observed(bot, () => air(bot.blockAt(p)), active, verifyMs);
 }
 
-async function setShelterDoor(bot, record, open, active, verifyMs) {
+async function setShelterPassage(bot, record, passable, active, verifyMs) {
     const plan = shelterBlueprint(record);
     if (!active()) return false;
     const current = shelterDoor(bot, record);
     if (!current.present) return false;
-    if (current.open === open) return true;
+    const matches = door => door.present && (passable ? door.passable : door.sealed);
+    if (matches(current)) return true;
     if (!blockFaceReachable(bot, plan.door, bot.entity.position.floored())) return false;
     const sneak = Boolean(bot.getControlState?.('sneak'));
     try {
@@ -254,13 +276,13 @@ async function setShelterDoor(bot, record, open, active, verifyMs) {
         if (!active()) return false;
         await bot.activateBlock(bot.blockAt(plan.door));
     } finally { bot.setControlState('sneak', sneak); }
-    return observed(bot, () => { const door = shelterDoor(bot, record); return door.present && door.open === open; }, active, verifyMs);
+    return observed(bot, () => matches(shelterDoor(bot, record)), active, verifyMs);
 }
 
 function openDoorTravel(bot, record, api) {
     const plan = shelterBlueprint(record);
     // This pathfinder version treats even open wooden doors as solid. Only
-    // our observed open north/south doorway has a clear center passage; no
+    // our observed doorway with a clear center passage gets this exception; no
     // other door, wall, liquid or unknown block gets a movement exception.
     return { ...api, prepareTravel: undefined, movements: () => {
         const movements = api.movements(), getBlock = movements.getBlock.bind(movements);
@@ -268,7 +290,7 @@ function openDoorTravel(bot, record, api) {
             const block = getBlock(...args);
             if (block.position?.x === plan.door.x && block.position?.z === plan.door.z &&
                 [plan.door.y, plan.door.y + 1].includes(block.position?.y) &&
-                block.name === 'oak_door' && shelterDoor(bot, record).open) {
+                block.name === 'oak_door' && shelterDoor(bot, record).passable) {
                 block.safe = true; block.physical = false;
                 block.height = block.position.y;
             }
@@ -297,12 +319,12 @@ export async function prepareShelterTravel(bot, destination, api, { verifyMs = 1
     try {
         const entry = fromInside ? plan.origin.offset(2, 0, 1) : plan.outside;
         if (!await walkSafely(bot, entry, { ...api, prepareTravel: undefined }) || !active() ||
-            !shelterDoor(bot, record).present || !await setShelterDoor(bot, record, true, active, verifyMs)) {
+            !shelterDoor(bot, record).present || !await setShelterPassage(bot, record, true, active, verifyMs)) {
             if (active()) throw new Error('Could not open the remembered shelter door safely; travel stopped.');
             return;
         }
         if (!await walkSafely(bot, fromInside ? plan.outside : plan.inside, openDoorTravel(bot, record, api)) ||
-            !await setShelterDoor(bot, record, false, active, verifyMs)) {
+            !await setShelterPassage(bot, record, false, active, verifyMs)) {
             if (active()) throw new Error('Could not verify passage through the remembered shelter door; travel stopped.');
             return;
         }
@@ -326,11 +348,11 @@ export async function enterAndVerifyShelter(bot, record, api, active, { verifyMs
     // the general travel hook so it cannot close the door mid entrance test.
     api = { ...api, prepareTravel: undefined };
     if (!await walkSafely(bot, plan.door, { ...api, goal: work }) ||
-        !await setShelterDoor(bot, record, true, active, verifyMs)) return false;
+        !await setShelterPassage(bot, record, true, active, verifyMs)) return false;
     const doorwayTravel = openDoorTravel(bot, record, api);
     if (!active() || !await walkSafely(bot, plan.outside, doorwayTravel)) return false;
     if (!active() || !await walkSafely(bot, plan.inside, doorwayTravel)) return false;
-    if (!await setShelterDoor(bot, record, false, active, verifyMs) || !active()) return false;
+    if (!await setShelterPassage(bot, record, false, active, verifyMs) || !active()) return false;
     const final = inspectShelter(bot, record);
-    return final.structureComplete && !final.doorState.open && bot.entity.position.floored().equals(plan.inside);
+    return final.structureComplete && final.doorState.sealed && bot.entity.position.floored().equals(plan.inside);
 }

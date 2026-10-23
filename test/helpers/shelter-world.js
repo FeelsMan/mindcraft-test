@@ -73,7 +73,20 @@ export function shelterWorld(version = '1.21.4', initial = {}) {
             assert.equal(route.status, 'success', 'Actual upstream pathfinder must prove the route.');
             for (const node of route.path) {
                 assert.equal(node.toBreak.length + node.toPlace.length, 0, 'No mining/scaffolding during building travel.');
-                bot.entity.position = new Vec3(node.x + 0.5, node.y, node.z + 0.5);
+                const from = bot.entity.position, to = new Vec3(node.x + 0.5, node.y, node.z + 0.5);
+                // A pathfinder door exception must also survive the real
+                // collision shapes along the movement, not just at its end.
+                for (const block of blocks.values()) {
+                    if (block?.name !== 'oak_door') continue;
+                    const p = block.position;
+                    for (const [x0, y0, z0, x1, y1, z1] of block.shapes) {
+                        const collision = Math.min(from.x, to.x) - 0.3 < p.x + x1 && Math.max(from.x, to.x) + 0.3 > p.x + x0 &&
+                            Math.min(from.z, to.z) - 0.3 < p.z + z1 && Math.max(from.z, to.z) + 0.3 > p.z + z0 &&
+                            Math.min(from.y, to.y) < p.y + y1 && Math.max(from.y, to.y) + 1.8 > p.y + y0;
+                        assert.equal(collision, false, 'Travel must not cross the actual door panel: ' + block.position);
+                    }
+                }
+                bot.entity.position = to;
             }
             assert(goal.isEnd(bot.entity.position.floored()));
             calls.push(['move', bot.entity.position.clone()]);

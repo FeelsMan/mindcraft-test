@@ -158,7 +158,7 @@ Supported oak/wooden/stone `!craftRecipe` requests also use the managed planner.
 Their count remains **additional recipe batches**: `!craftRecipe("stick", 1)`
 produces four additional sticks. Use `!makeGoal("stick", 4)` to keep four total.
 See [inventory grounding, quantities and completion reports](docs/mia-crafting-reliability.md).
-Existing Mia folders can use the [current reversible source installer](scripts/mia-world-awareness-fix.cjs); installation and rollback commands are in that guide.
+Existing Mia folders can use the [current reversible source installer](scripts/mia-shelter-door-fix.cjs); installation and rollback commands are in the [shelter guide](docs/mia-shelter.md).
 
 | Command | Supported targets |
 | --- | --- |

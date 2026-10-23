@@ -29,11 +29,12 @@ async function start(f) {
     assert.match(await startShelterGoal(f.agent, f.api), /Shelter goal started/);
     const goal = f.agent.gather_goal; goal.resumeDelayMs = 0; return goal;
 }
-function built(f) {
+function built(f, doorProperties = {}) {
     const plan = shelterBlueprint(f.record);
     for (const step of plan.blocks) f.set(step.position, step.item);
-    f.set(plan.door, 'oak_door', { half: 'lower', open: false, facing: 'north', powered: false });
-    f.set(plan.door.offset(0, 1, 0), 'oak_door', { half: 'upper', open: false, facing: 'north', powered: false });
+    const properties = { open: false, facing: 'north', hinge: 'left', powered: false, ...doorProperties };
+    f.set(plan.door, 'oak_door', { ...properties, half: 'lower' });
+    f.set(plan.door.offset(0, 1, 0), 'oak_door', { ...properties, half: 'upper' });
     return plan;
 }
 
@@ -160,13 +161,14 @@ test('dropped seeds/items and experience do not falsely block a legal wall place
     assert(await placeShelterBlock(f.bot, f.record, step, f.travel, () => true));
 });
 
-test('a partial or incorrectly oriented door cannot satisfy shelter completion', () => {
+test('a partial or inconsistent door pair cannot satisfy shelter completion', () => {
     const f = shelterWorld(), plan = built(f);
     f.set(plan.door.offset(0, 1, 0), 'air'); assert.equal(shelterDoor(f.bot, f.record).present, false);
-    assert.throws(() => inspectShelter(f.bot, f.record), /obstructed/);
+    assert.throws(() => inspectShelter(f.bot, f.record), /incomplete or inconsistent halves/);
     built(f);
-    for (const dy of [0, 1]) f.set(plan.door.offset(0, dy, 0), 'oak_door', { half: dy ? 'upper' : 'lower', facing: 'east', open: false });
+    f.set(plan.door.offset(0, 1, 0), 'oak_door', { half: 'upper', facing: 'east', open: false });
     assert.equal(shelterDoor(f.bot, f.record).present, false);
+    assert.throws(() => inspectShelter(f.bot, f.record), /lower=oak_door.*upper=oak_door/);
 });
 
 test('the complete shell is not a completed goal until the door works and is closed', async () => {
@@ -382,4 +384,68 @@ test('a finished roof has a real safe descent to the entrance with no digging or
     assert(await enterAndVerifyShelter(f.bot, f.record, f.travel, () => true));
     assert(f.bot.entity.position.floored().equals(shelterBlueprint(f.record).inside));
     assert.equal(f.calls.filter(c => c[0] === 'dig' || c[0] === 'place').length, 0);
+});
+
+for (const version of ['1.21.4', '26.3']) test(`existing ${version} doors in every facing/hinge/state are recognized and physically opened, crossed and sealed`, async () => {
+    for (const facing of ['north', 'south', 'east', 'west']) for (const hinge of ['left', 'right']) for (const open of [false, true]) {
+        const f = shelterWorld(version), plan = built(f, { facing, hinge, open });
+        const before = shelterDoor(f.bot, f.record), northSouth = ['north', 'south'].includes(facing);
+        assert.equal(before.present, true, JSON.stringify({ facing, hinge, open }));
+        assert.equal(before.open, open, 'Keep the native open property distinct from passage clearance');
+        assert.equal(before.passable, northSouth ? open : !open);
+        assert.equal(before.sealed, !before.passable);
+        const state = inspectShelter(f.bot, f.record);
+        assert.equal(state.needsDoor, false); assert(state.structureComplete);
+        assert(await enterAndVerifyShelter(f.bot, f.record, f.travel, () => true));
+        const after = shelterDoor(f.bot, f.record);
+        assert(after.present && after.sealed && !after.passable);
+        assert.equal(after.open, !northSouth, 'Closure follows the actual panel orientation');
+        assert(f.bot.entity.position.floored().equals(plan.inside));
+        assert.equal(f.calls.filter(c => ['dig', 'place', 'gather', 'craft'].includes(c[0])).length, 0);
+    }
+});
+
+test('resume recognizes the existing door at the reported coordinates and completes without new materials or replacement', async t => {
+    const f = shelterWorld('26.3'), m = memoryFixture(t, f);
+    f.record = { version: 1, origin: { x: 23, y: 88, z: 8 } };
+    for (let x = -1; x <= 5; x++) for (let z = -1; z <= 5; z++)
+        f.set(new Vec3(23 + x, 87, 8 + z), 'stone');
+    const plan = built(f, { facing: 'east', open: false });
+    assert.deepEqual(plan.door, new Vec3(25, 88, 8));
+    f.bot.entity.position = plan.inside.offset(0.5, 0, 0.5);
+    m.memory.saveShelter(f.record);
+    const old = { kind: 'shelter', item: 'shelter', target: 1, shelter: f.record };
+    m.memory.beginGoal(old); m.memory.checkpoint(old, 'blocked', 'Previous oak_door obstruction');
+    assert(await m.memory.resume(() => startShelterGoal(f.agent, f.api), { manual: true }));
+    assert.match(await f.agent.gather_goal.done, /Shelter complete/);
+    assert.equal(m.memory.pendingGoal().status, 'complete');
+    assert.deepEqual(m.memory.recallPlace('home'), { x: 25, y: 88, z: 10 });
+    assert.equal(f.calls.filter(c => ['dig', 'place', 'gather', 'craft'].includes(c[0])).length, 0);
+    assert(shelterDoor(f.bot, f.record).sealed);
+});
+
+test('ordinary travel reuses a sideways door and seals the entrance after both exit and return', async () => {
+    for (const facing of ['east', 'west']) {
+        const f = shelterWorld('26.3'), plan = built(f, { facing, open: true, hinge: 'right' });
+        f.bot.shelterSite = { dimension: 'overworld', record: f.record };
+        const api = getManagedTravel(f.bot);
+        await api.prepareTravel(new Vec3(8, 64, 2));
+        assert(f.bot.entity.position.floored().equals(plan.outside));
+        assert(shelterDoor(f.bot, f.record).sealed);
+        await api.prepareTravel(plan.inside);
+        assert(f.bot.entity.position.floored().equals(plan.inside));
+        assert(shelterDoor(f.bot, f.record).sealed);
+        assert.equal(f.calls.filter(c => c[0] === 'dig' || c[0] === 'place').length, 0);
+    }
+});
+
+test('unloaded halves and unknown door geometry stay unverified with a specific diagnostic', () => {
+    for (const issue of ['unloaded', 'shapes']) {
+        const f = shelterWorld('26.3'), plan = built(f);
+        if (issue === 'unloaded') f.set(plan.door.offset(0, 1, 0), null);
+        else f.bot.blockAt(plan.door).shapes = [];
+        assert.throws(() => inspectShelter(f.bot, f.record), issue === 'unloaded' ? /upper=unloaded/ : /unavailable collision shapes/);
+        assert.equal(shelterDoor(f.bot, f.record).sealed, false);
+        assert.equal(f.calls.length, 0);
+    }
 });

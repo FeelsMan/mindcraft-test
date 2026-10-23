@@ -216,7 +216,7 @@ export class AgentMemory {
             reason === 'cancelled' || goal.cancelled ? 'cancelled' : 'blocked';
         this.checkpoint(goal, status, report);
         if (complete) this.record({ kind: 'goal_complete', item: goal.item, position: this.position, verified: true,
-            text: goal.kind === 'shelter' ? `Verified shelter shell and door at ${JSON.stringify(goal.shelter?.origin)}; entrance crossed, door closed. Recheck world blocks before reuse.` :
+            text: goal.kind === 'shelter' ? `Verified shelter shell and door at ${JSON.stringify(goal.shelter?.origin)}; entrance crossed and sealed. Recheck world blocks before reuse.` :
                 `Verified goal completed: at least ${goal.target} ${goal.item} in inventory at that time.` });
     }
 

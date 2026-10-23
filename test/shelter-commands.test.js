@@ -26,7 +26,7 @@ test('shelter command starts without owning its own action slot and routes one v
     assert.match(await executeCommand(fixture.agent, '!shelterGoal', { requester: 'CaptainNeyo', instructionEpoch: 7 }), /Shelter goal started/);
     assert.match(await fixture.agent.gather_goal.done, /Shelter complete/);
     assert.equal(deliveries.length, 1); assert.equal(deliveries[0].requester, 'CaptainNeyo');
-    assert.match(deliveries[0].message, /Entrance tested, door closed/);
+    assert.match(deliveries[0].message, /Entrance tested, doorway closed/);
     assert.match(getCommandDocs(fixture.agent), /!shelterGoal/);
 });
 

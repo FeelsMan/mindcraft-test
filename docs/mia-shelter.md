@@ -28,13 +28,13 @@ placement call returning successfully is not sufficient evidence.
 ## Install in an existing Mia folder
 
 Stop Mindcraft and download the distinctly named current installer,
-[`mia-world-awareness-fix.cjs`](../scripts/mia-world-awareness-fix.cjs),
+[`mia-shelter-door-fix.cjs`](../scripts/mia-shelter-door-fix.cjs),
 and run it from `D:\mai\mindcraft`:
 
 ```powershell
-node .\mia-world-awareness-fix.cjs --check
-node .\mia-world-awareness-fix.cjs --apply
-node .\mia-world-awareness-fix.cjs --test
+node .\mia-shelter-door-fix.cjs --check
+node .\mia-shelter-door-fix.cjs --apply
+node .\mia-shelter-door-fix.cjs --test
 node main.js --profiles .\mia-qwen.json
 ```
 
@@ -85,8 +85,8 @@ dimension. Placed blocks, other waypoints, stations and experience history remai
   then use `!resumeGoal`. An explicit resume renews the first blocked step's
   bounded attempt; automatic restart/recovery still observes failure cooldowns. Existing
   mismatched blocks are not demolished to force the blueprint through.
-- A complete shell is insufficient if the door is partial, incorrectly oriented,
-  cannot be opened/crossed, or cannot be closed. `home` is recorded only after
+- A complete shell is insufficient if the door has incomplete/inconsistent halves,
+  cannot be operated/crossed, or cannot seal the entrance. `home` is recorded only after
   final live checks. It is a named waypoint, not a bed or respawn setting.
 
 The first version does not flatten terrain, fill foundations, select other
@@ -105,6 +105,27 @@ Windows runs the interaction and shelter tests using Node **22.23.2**.
 Live Minecraft building remains the final check for server timing, physics and
 terrain variations. Start with the supplied-material test above, then test
 resource gathering and restarting during a partial build.
+
+## Existing door recognition
+
+A complete two-half oak door at the saved entrance is recognized in all four
+facings and both hinge positions. The former north/south-only check could call
+an already placed east/west door an obstruction and stop a completed shelter.
+Recognition now stays separate from the native `open` property and actual
+passage clearance. No replacement door or extra materials are needed.
+
+The builder reads both halves' collision shapes, clears a supported passage,
+crosses outside and back inside, then leaves the panel sealing the doorway.
+For a sideways door, the native `open` flag can be true while the panel seals
+this north-wall entrance; verification follows the actual panel. Subsequent
+travel uses the same geometry checks. Incomplete, unloaded or inconsistent
+door data remains unverified and reports both halves' observed states.
+
+After installing this fix, keep the existing site and send `!resumeGoal`.
+The completed walls, roof and door are rechecked and reused. There is no need to
+reset the shelter or remove its door. Regression coverage includes every
+facing/hinge/open combination in 1.21.4 and 26.3, swept door-panel collision
+checks during travel, and resuming the reported entrance at `(25, 88, 8)`.
 
 ## Placement and awareness update
 
