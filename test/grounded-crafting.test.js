@@ -98,6 +98,17 @@ test('ordinary movement and unrelated terrain changes keep a conversational deci
     assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Ready'); assert.equal(calls, 1);
 });
 
+test('a pending table pickup is described as unverified recovery rather than a reusable placed station', async () => {
+    const f = fixture(); let prompt;
+    f.agent.bot.craftingStation = { available: () => true, travelDistance: 32,
+        record: { position: { x: 16, y: 89, z: 17 }, pickupMinimum: 1 } };
+    const fake = promptFixture(f, async (_messages, system) => { prompt = system; return 'Recheck the station.'; });
+    assert.equal(await Prompter.prototype.promptConvo.call(fake, []), 'Recheck the station.');
+    assert.match(prompt, /pickup remains pending near 16, 89, 17/);
+    assert.doesNotMatch(prompt, /Your reusable crafting table is remembered/);
+    assert.match(prompt, /not a verified placed table or a successful inventory receipt/);
+});
+
 test('giving an axe away replaces old inventory with an explicit current absence on every model request', async () => {
     const f = fixture();
     const history = [{ role: 'system', content: 'INVENTORY\n- stone_axe: 1' },

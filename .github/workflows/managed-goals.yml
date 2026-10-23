@@ -11,6 +11,7 @@ on:
       - mia/shelter-placement-2026-10-18
       - mia/shelter-door-2026-10-23
       - mia/live-world-memory-2026-10-23
+      - mia/station-pickup-2026-10-23
   pull_request:
     paths:
       - 'src/**'
@@ -64,8 +65,8 @@ jobs:
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:
-          name: mia-live-world-memory-fix
-          path: scripts/mia-live-world-memory-fix.cjs
+          name: mia-station-pickup-fix
+          path: scripts/mia-station-pickup-fix.cjs
           if-no-files-found: error
           retention-days: 30
 

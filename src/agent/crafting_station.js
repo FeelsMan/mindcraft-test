@@ -51,6 +51,12 @@ export class CraftingStation {
             this.forget();
             return false;
         }
+        if (!this.busy && block?.name === 'crafting_table' && record.pickupMinimum !== null) {
+            // A saved intent can precede the actual break. Craft at the table
+            // that is still here instead of repeatedly trying to pack it first.
+            record.pickupMinimum = null;
+            this.bot.localMemory?.saveStation(record);
+        }
         if (block?.name === 'crafting_table' && record.pendingPlacement) {
             record.pendingPlacement = false;
             this.bot.localMemory?.saveStation(record);
@@ -120,6 +126,7 @@ export class CraftingStation {
     async pack() {
         if (this.busy || this.unsafe() || !this.available()) return false;
         const record = this.record;
+        const recoveringDrop = record.pickupMinimum !== null;
         this.busy = true;
         try {
             const knownBlock = this.api.blockAt(record.position);
@@ -157,6 +164,20 @@ export class CraftingStation {
             }
             if (this.bot.interrupt_code || this.record !== record) return false;
             throw new Error('Could not verify crafting table pickup; travel stopped. Check the dropped table and inventory space.');
+        } catch (error) {
+            const observed = this.api.blockAt(record.position);
+            if (recoveringDrop && !this.unsafe() && this.record === record && observed && observed.name !== 'crafting_table') {
+                // Keep a fresh failed pickup for one recovery attempt. When
+                // that recovery also fails at a confirmed empty/replaced cell,
+                // retire only the stale drop task, never a placed/unloaded table.
+                if (this.bot.localMemory?.retireStationPickup)
+                    this.bot.localMemory.retireStationPickup(record, error.message);
+                else this.bot.localMemory?.forgetStation(record);
+                this.record = null;
+                this.api.log?.('Could not recover the pending crafting-table drop. Old pickup retired without claiming an item; replanning from live inventory and usable tables.');
+                return false;
+            }
+            throw error;
         } finally { this.busy = false; }
     }
 }

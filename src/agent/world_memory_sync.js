@@ -316,7 +316,10 @@ export class WorldMemorySync {
             .sort((a, b) => Number(b.row.name.startsWith('owned:')) - Number(a.row.name.startsWith('owned:')))
             .slice(0, 8).map(entry =>
             `${entry.row.name} at ${keyOf(entry.row.position)}: ${entry.observation?.status || 'unknown'} ` +
-            (entry.row.kind === 'shelter' ? '(block observations only; entrance and safety require verification).' : '(loaded block observation; access unverified).'));
+            (entry.row.kind === 'shelter' ? '(block observations only; entrance and safety require verification).' :
+                entry.row.metadata.pickupRecovery?.status === 'unrecovered' ? '(old pickup retired; no successful pickup claimed; access unverified).' :
+                entry.row.metadata.pickupMinimum != null ? '(pickup pending; not a verified usable table or inventory receipt).' :
+                    '(loaded block observation; access unverified).'));
     }
     close() {
         if (this.closed) return;

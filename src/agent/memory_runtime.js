@@ -153,6 +153,24 @@ export class AgentMemory {
             }
         });
     }
+    retireStationPickup(record, reason) {
+        if (!record || record.dimension !== this.dimension || record.pickupMinimum == null || !validPosition(record.position)) return false;
+        const block = this.bot.blockAt?.(new Vec3(record.position.x, record.position.y, record.position.z));
+        if (!block || block.name === 'crafting_table') return false;
+        const retired = this.safe(() => {
+            const row = this.store.getLocation(this.world, this.dimension, 'owned:crafting_table');
+            if (!row || JSON.stringify(row.position) !== JSON.stringify(positionOf(record.position))) return false;
+            this.store.putLocation(this.world, this.dimension, row.name, row.kind, row.position,
+                { ...row.metadata, owned: false, pickupMinimum: null, pendingPlacement: false,
+                    pickupRecovery: { status: 'unrecovered', minimum: record.pickupMinimum, reason: textOf(reason), at: this.clock() } });
+            this.record({ kind: 'pickup_failed', item: 'crafting_table', position: row.position, verified: true,
+                text: 'A pending crafting-table pickup at ' + JSON.stringify(row.position) +
+                    ' could not be recovered after a bounded retry at a loaded missing/replaced block. Old pickup retired; no inventory gain or successful pickup was claimed.' });
+            return true;
+        }, false);
+        if (retired) this.worldSync?.locationSaved('owned:crafting_table');
+        return retired;
+    }
 
     saveFurnace(record) {
         if (!record || record.dimension !== this.dimension || !validPosition(record.position)) return;

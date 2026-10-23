@@ -238,7 +238,9 @@ export class Prompter {
             const station = this.agent.bot.craftingStation;
             if (station?.available()) {
                 const { x, y, z } = station.record.position;
-                prompt += `\nYour reusable crafting table is remembered at ${x}, ${y}, ${z}. It is placed in the world, so its absence from inventory does not mean you need to craft another. Crafting returns to it; normal travel beyond ${station.travelDistance} blocks retrieves it first. Safety actions take priority.`;
+                prompt += station.record.pickupMinimum !== null ?
+                    `\nA crafting-table pickup remains pending near ${x}, ${y}, ${z}. This is not a verified placed table or a successful inventory receipt. Managed crafting makes a bounded recovery attempt and replans if a confirmed missing drop cannot be recovered. Unloaded locations stay unknown.` :
+                    `\nYour reusable crafting table is remembered at ${x}, ${y}, ${z}. It is placed in the world, so its absence from inventory does not mean you need to craft another. Crafting returns to it; normal travel beyond ${station.travelDistance} blocks retrieves it first. Safety actions take priority.`;
             }
             if (!this.agent.self_prompter.isStopped()) {
                 prompt += '\nCURRENT GOAL: ' + this.agent.self_prompter.prompt

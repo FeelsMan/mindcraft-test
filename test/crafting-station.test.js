@@ -163,3 +163,55 @@ test('death during placement cannot install a stale owned table record', async (
     assert.equal(await f.station.place(), null);
     assert.equal(f.station.record, null); assert.equal(f.station.busy, false);
 });
+
+test('crafting reuses a still-placed table when its earlier pickup intent never broke it', async () => {
+    const f = fixture(); f.station.record.pickupMinimum = 1;
+    assert.equal((await f.station.forCraft()).name, 'crafting_table');
+    assert.equal(f.station.record.pickupMinimum, null);
+    assert.equal(f.calls.length, 0); assert.equal(f.stock.crafting_table, undefined);
+});
+
+test('an unreachable pending drop in loaded air stops blocking crafting without claiming pickup', async () => {
+    const f = fixture(); f.station.record.pickupMinimum = 1; f.setBlock({ name: 'air', position: f.position });
+    f.bot.entity.position.x = 20; f.api.move = async () => false;
+    assert.equal(await f.station.forCraft(), null);
+    assert.equal(f.station.available(), false); assert.equal(f.station.record, null);
+    assert.equal(f.stock.crafting_table, undefined); assert.equal(f.calls.length, 0);
+});
+
+test('an empty reachable old drop receives one bounded pickup attempt and is then retired', async () => {
+    const f = fixture(); f.station.record.pickupMinimum = 1; f.setBlock({ name: 'air', position: f.position });
+    f.api.pickup = async () => f.calls.push(['pickup-unverified']);
+    assert.equal(await f.station.forCraft(), null); assert.equal(f.station.record, null);
+    assert.equal(f.calls.filter(c => c[0] === 'pickup-unverified').length, 1);
+    assert.equal(f.stock.crafting_table, undefined);
+});
+
+test('an unloaded pending pickup is retained when approach fails because absence is unproven', async () => {
+    const f = fixture(); const record = f.station.record; record.pickupMinimum = 1;
+    f.setBlock(null); f.bot.entity.position.x = 20; f.api.move = async () => false;
+    await assert.rejects(f.station.forCraft(), /Could not reach/);
+    assert.equal(f.station.record, record); assert.equal(record.pickupMinimum, 1);
+});
+
+test('combat during recovery retains the pending drop for another attempt', async () => {
+    const f = fixture(); const record = f.station.record; record.pickupMinimum = 1;
+    f.setBlock({ name: 'air', position: f.position }); f.bot.entity.position.x = 20;
+    f.api.move = async () => { f.bot.interrupt_code = true; return false; };
+    assert.equal(await f.station.forCraft(), null); assert.equal(f.station.record, record);
+});
+
+test('a loaded table with a failed route is retained rather than retired as a lost drop', async () => {
+    const f = fixture(); f.station.record.pickupMinimum = 1;
+    f.bot.entity.position.x = 20; f.api.move = async () => false;
+    await assert.rejects(f.station.forCraft(), /Could not reach/);
+    assert(f.station.record); assert.equal(f.station.record.pickupMinimum, null);
+    assert.equal(f.calls.length, 0);
+});
+
+test('a player replacement block at a failed pending drop is never mined', async () => {
+    const f = fixture(); f.station.record.pickupMinimum = 1;
+    f.setBlock({ name: 'stone', position: f.position }); f.bot.entity.position.x = 20; f.api.move = async () => false;
+    assert.equal(await f.station.forCraft(), null); assert.equal(f.station.record, null);
+    assert.equal(f.calls.length, 0); assert.equal(f.stock.crafting_table, undefined);
+});

@@ -7,10 +7,12 @@ import { join } from 'node:path';
 import Vec3 from 'vec3';
 import { installLocalMemory } from '../src/agent/memory_runtime.js';
 import { MemoryBank } from '../src/agent/memory_bank.js';
-import { CraftingStation } from '../src/agent/crafting_station.js';
+import { CraftingStation, hasReusableTable } from '../src/agent/crafting_station.js';
 import { ManagedFurnace } from '../src/agent/managed_smelting.js';
 import { captureWorld, worldChanged, worldContext } from '../src/agent/live_inventory.js';
 import { shelterBlueprint } from '../src/agent/shelter_blueprint.js';
+import { ActionManager } from '../src/agent/action_manager.js';
+import { startMakeGoal } from '../src/agent/make_goal.js';
 
 const cleanup = new WeakMap();
 function fixture(t, { root, unloaded = false, world = 'test-world' } = {}) {
@@ -336,4 +338,92 @@ test('reinstalling the memory integration never accumulates lifecycle or block l
     assert.equal(f.bot.world.listenerCount('blockUpdate'), 1);
     f.agent.local_memory.close();
     for (const [name] of counts) assert.equal(f.bot.listenerCount(name), 0, name);
+});
+
+test('retiring an unrecovered loaded drop persists across restart without erasing its history or reporting an item', async t => {
+    const f = fixture(t), record = f.own('crafting_table', undefined, { pickupMinimum: 1 });
+    f.memory.record({ kind: 'craft', item: 'crafting_table', text: 'Verified original table crafted.', verified: true });
+    f.set('air'); f.bot.entity.position = new Vec3(20, 64, 0);
+    f.bot.craftingStation.api.move = async () => false;
+    assert.equal(await f.bot.craftingStation.forCraft(), null); f.sync.flush();
+    assert.equal(f.memory.station(), null); assert.equal(f.stock.crafting_table, undefined);
+    const saved = f.memory.store.getLocation(f.memory.world, 'overworld', 'owned:crafting_table');
+    assert.equal(saved.metadata.owned, false); assert.equal(saved.metadata.pickupMinimum, null);
+    assert.equal(saved.metadata.pickupRecovery.status, 'unrecovered');
+    assert.equal(saved.metadata.pickupRecovery.minimum, record.pickupMinimum);
+    f.memory.close();
+    const next = fixture(t, { root: f.root, unloaded: true });
+    assert.equal(next.memory.station(), null, 'Unloading/restart cannot revive a retired drop task');
+    const history = next.memory.store.candidates(next.memory.world, 'overworld', 'crafting_table');
+    assert(history.some(row => row.kind === 'craft'));
+    assert(history.some(row => row.kind === 'pickup_failed' && /no inventory gain or successful pickup was claimed/.test(row.text)));
+    assert.match(next.memory.summary(), /crafting_table.*unknown/);
+    assert.match(next.memory.summary(), /old pickup retired/);
+});
+
+test('retiring a pickup requires loaded absence and cannot overwrite another station or another dimension', t => {
+    const f = fixture(t), old = f.own('crafting_table', undefined, { pickupMinimum: 1 });
+    assert.equal(f.memory.retireStationPickup(old, 'Failed route'), false, 'The table is still placed');
+    f.unload(); assert.equal(f.memory.retireStationPickup(old, 'Unloaded'), false);
+    f.load(); f.set('air');
+    const fresh = f.own('crafting_table', new Vec3(6, 64, 0));
+    assert.equal(f.memory.retireStationPickup(old, 'Old callback'), false);
+    assert.deepEqual(f.memory.station(), fresh);
+    f.bot.game.dimension = 'the_nether';
+    assert.equal(f.memory.retireStationPickup({ ...fresh, pickupMinimum: 1 }, 'Wrong dimension'), false);
+});
+
+test('the restored three-axe goal replans past an unreachable missing-table pickup and finishes without another command', async t => {
+    const original = fixture(t), old = new Vec3(16, 89, 17);
+    original.own('crafting_table', old, { pickupMinimum: 1 }); original.set('air', old);
+    const savedGoal = { kind: 'make', item: 'stone_axe', target: 3 };
+    original.memory.beginGoal(savedGoal); original.memory.checkpoint(savedGoal, 'blocked', 'Could not reach my crafting table');
+    original.memory.close();
+    const f = fixture(t, { root: original.root }), bot = f.bot, agent = f.agent, calls = [];
+    bot.entity.position = new Vec3(30, 82, 20);
+    Object.assign(f.stock, { stone_axe: 2, cobblestone: 3, stick: 2, oak_planks: 4 });
+    const fresh = new Vec3(31, 82, 20);
+    const station = bot.craftingStation = new CraftingStation(bot, {
+        blockAt: p => bot.blockAt(p),
+        move: async p => { calls.push(['move', p]); if (p.x === old.x && p.y === old.y) return false; bot.entity.position = new Vec3(p.x, p.y, p.z); return true; },
+        place: async intent => { intent(fresh); f.stock.crafting_table--; return f.set('crafting_table', fresh); },
+        break: async () => assert.fail('No placed old table exists to break'),
+        pickup: async () => assert.fail('The old drop could not be reached'),
+        log: text => calls.push(['log', text])
+    }, { verifyTimeoutMs: 1 });
+    agent.actions = new ActionManager(agent);
+    agent.self_prompter = { stop: async () => {} };
+    agent.requestInterrupt = () => { bot.interrupt_code = true; };
+    agent.clearBotLogs = () => { bot.interrupt_code = false; bot.output = ''; };
+    agent.cleanKill = reason => assert.fail(reason); agent.isIdle = () => !agent.actions.executing;
+    agent.history.add = async () => {}; agent.openChat = () => {};
+    const recipes = {
+        crafting_table: [[{ oak_planks: 4 }, { craftedCount: 1 }]],
+        stone_axe: [[{ cobblestone: 3, stick: 2 }, { craftedCount: 1 }]]
+    };
+    const api = {
+        hasTable: () => hasReusableTable(bot), recipes: name => recipes[name], verifyTimeoutMs: 1,
+        collect: async () => assert.fail('All necessary ingredients are already held'),
+        craft: async (_bot, name) => {
+            calls.push(['craft', name]);
+            if (name === 'stone_axe') {
+                let table = await station.forCraft();
+                if (!table && f.stock.crafting_table > 0) table = await station.place();
+                if (!table) return false;
+                assert.equal(table.name, 'crafting_table');
+            }
+            for (const [item, count] of Object.entries(recipes[name][0][0])) { assert(f.stock[item] >= count); f.stock[item] -= count; }
+            f.stock[name] = (f.stock[name] || 0) + 1; return true;
+        }
+    };
+    assert(await f.memory.resume(async command => {
+        assert.equal(command, '!makeGoal("stone_axe", 3)');
+        return startMakeGoal(agent, 'stone_axe', 3, api);
+    }, { manual: true }));
+    assert.match(await agent.gather_goal.done, /Crafting complete: 3\/3 stone_axe/);
+    assert.equal(f.stock.stone_axe, 3); assert.equal(f.stock.cobblestone, 0);
+    assert.equal(calls.filter(c => c[0] === 'move' && c[1].x === old.x).length, 1);
+    assert.equal(calls.filter(c => c[0] === 'craft' && c[1] === 'crafting_table').length, 1);
+    assert.deepEqual(f.memory.station().position, { ...fresh });
+    assert.equal(f.memory.pendingGoal().status, 'complete'); assert.equal(f.stock.crafting_table, 0, 'New station is placed, not a fabricated pickup');
 });

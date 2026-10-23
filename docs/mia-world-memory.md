@@ -2,6 +2,11 @@
 
 Release: `mia-live-world-memory-2026-10-23`.
 
+The [station pickup follow-up](mia-station-pickup.md) fixes a pending old table
+pickup that could still block crafting after memory correctly reported the
+placed table missing. It includes the current cumulative installer and resume
+instructions, preserving this world-memory update.
+
 Mia now connects received world changes to her local memory and active decisions.
 Verified past experiences remain history. A separate bounded observation cache
 tracks what loaded blocks currently establish, so a furnace crafted earlier is
