@@ -6,6 +6,7 @@ export function readWorldState(adapter, clock = Date.now) {
         scope: { ...observed.scope },
         available: observed.available !== false,
         recovering: Boolean(observed.recovering),
+        survival: observed.survival ? { ...observed.survival } : null,
         health: Number.isFinite(observed.health) ? observed.health : null,
         hunger: Number.isFinite(observed.hunger) ? observed.hunger : null,
         position: observed.position ? { ...observed.position } : null,

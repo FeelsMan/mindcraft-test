@@ -58,6 +58,7 @@ export class MainSupervisor {
         const record = this.current;
         const state = this.observe();
         if (!state.available) return 'The environment is unavailable.';
+        if (state.survival?.active && priority < 95) return 'Survival recovery holds the action slot.';
         if (managedLabels.has(label) && (!goal || record?.goal !== goal || !goal.active || goal.cancelled))
             return 'This managed action no longer owns the goal.';
         if (record?.goal.active && !record.goal.cancelled && priority < 50)
@@ -176,6 +177,7 @@ export class MainSupervisor {
             (goal ? `Goal: ${goal.kind} ${goal.target} ${goal.item} (${goal.status}).\n` +
                 `Specialist: ${goal.specialist}. Reason: ${goal.reason}\n` : 'No managed goal.\n') +
             `Action owner: ${owner ? owner.specialist + ' / ' + owner.label : 'none'}.\n` +
-            `Live condition: health ${state.health ?? 'unknown'}, hunger ${state.hunger ?? 'unknown'}; ${state.scope.dimension}.`;
+            `Live condition: health ${state.health ?? 'unknown'}, hunger ${state.hunger ?? 'unknown'}; ${state.scope.dimension}.` +
+            (state.survival ? `\nSURVIVAL v1: ${state.survival.status}; ${state.survival.reason}` : '');
     }
 }

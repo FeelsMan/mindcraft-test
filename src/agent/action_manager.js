@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 export function actionPriority(label) {
     if (label === 'mode:self_preservation') return 100;
+    if (label === 'mode:survival') return 95;
     if (label === 'mode:cowardice') return 90;
     if (label === 'mode:self_defense') return 80;
     if (label === 'mode:unstuck') return 70;
@@ -28,9 +29,9 @@ export class ActionManager {
 
     async resumeAction() { return this._executeResume(); }
 
-    async runAction(label, fn, { timeout = 10, resume = false, goal = null } = {}) {
+    async runAction(label, fn, { timeout = 10, resume = false, goal = null, valid = null } = {}) {
         if (resume) return this._executeResume(label, fn, timeout);
-        return this._executeAction(label, fn, timeout, goal);
+        return this._executeAction(label, fn, timeout, goal, valid);
     }
 
     async stop(reason = 'stop') {
@@ -71,7 +72,7 @@ export class ActionManager {
         return { success: false, message: null, interrupted: false, timedout: false };
     }
 
-    async _executeAction(label, fn, timeout = 10, goal = null) {
+    async _executeAction(label, fn, timeout = 10, goal = null, valid = null) {
         // Serialize handoffs, not whole actions: an emergency can request a
         // stop immediately, but two waiters cannot both claim the bot afterward.
         const previous = this.handoff;
@@ -81,6 +82,7 @@ export class ActionManager {
         let run;
         try {
             const priority = actionPriority(label);
+            if (valid && !valid()) return deferred('Action request is no longer current.');
             const denied = this.agent.main_supervisor?.actionUnavailable(label, goal, priority);
             if (denied) return deferred(denied);
             if (this.agent.gather_goal?.active && priority < 50)
@@ -88,6 +90,7 @@ export class ActionManager {
             if (this.currentRun && priority < this.currentRun.priority)
                 return deferred(`Waiting for ${this.currentActionLabel}.`);
             await this.stop(label);
+            if (valid && !valid()) return deferred('Action request is no longer current.');
             if (this.agent.recovering_from_death) return deferred('Waiting for respawn recovery.');
             // A stop/replacement can arrive while the previous action settles.
             const obsolete = this.agent.main_supervisor?.actionUnavailable(label, goal, priority);

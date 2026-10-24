@@ -5,12 +5,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const repository = path.resolve(__dirname, '..');
+const survivalInstaller = path.join(repository, 'scripts/mia-survival-supervisor-update.cjs');
 const repairInstaller = path.join(repository, 'scripts/mia-shelter-repair-update.cjs');
 const namedInstaller = path.join(repository, 'scripts/mia-main-supervisor-update.cjs');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 // --test must validate the file actually launched by the user, even when an
 // older installer remains elsewhere in their Mindcraft folder.
-const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(repairInstaller) ? repairInstaller : fs.existsSync(namedInstaller) ? namedInstaller :
+const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(survivalInstaller) ? survivalInstaller : fs.existsSync(repairInstaller) ? repairInstaller : fs.existsSync(namedInstaller) ? namedInstaller :
     fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-main-supervisor-update.cjs'));
 const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
@@ -43,7 +44,10 @@ function fixture(ref = baseline) {
         'settings.js': Buffer.from('export default { port: 55916 };\n'),
         'keys.json': Buffer.from('local-keys-sentinel\n'),
         'bots/Mia/memory.json': Buffer.from('{"world":"mia-survival-1","keep":"verified history"}\n'),
-        'bots/Mia/memory.sqlite': Buffer.from([0, 1, 255, 13, 10, 42])
+        'bots/Mia/memory.sqlite': Buffer.from([0, 1, 255, 13, 10, 42]),
+        'bots/Mia/memory.sqlite-wal': Buffer.from('private-wal-sentinel\n'),
+        'bots/Mia/memory.sqlite-shm': Buffer.from('private-shm-sentinel\n'),
+        'bots/Mia/memory-config.json': Buffer.from('{"world_id":"mia-survival-1"}\n')
     };
     for (const [relative, bytes] of Object.entries(privateFiles)) {
         fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
@@ -68,6 +72,24 @@ function latest(f) {
 test('the standalone installer embeds the current source, tests and documentation', () => {
     for (const entry of PAYLOAD)
         assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
+});
+
+test('the published shelter repair upgrades to Survival v1 and rolls back exact bytes while preserving private state', {
+    skip: !gitFile('e81fcab25d0f31fa0e1527b9a55ee4a7af2f8cec', 'package.json')
+}, () => {
+    const f = fixture('e81fcab25d0f31fa0e1527b9a55ee4a7af2f8cec');
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/supervisors/survival.js'), 'utf8'), /class SurvivalSupervisor/);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/agent.js'), 'utf8'), /installSurvivalSupervisor\(this\)/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
 const supervisorBaseline = gitFile('7cd350fbb7fd1889cb9c717d25b330ad74c68eba', 'package.json') ?
