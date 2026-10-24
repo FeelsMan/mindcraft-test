@@ -1,13 +1,13 @@
 // Deterministic log collection. Target is TOTAL inventory, not additional logs.
-import { actionFailureDetail, collectAndVerify, waitForGoalTurn } from './managed_goal.js';
+import { actionFailureDetail, collectAndVerify, waitForGoalTurn, finishManagedGoal } from './managed_goal.js';
 export function countItem(bot, item) {
     return bot.inventory.items().filter(x => x.name === item).reduce((n, x) => n + x.count, 0);
 }
 export function gatherCommandAllowed(agent, name) {
-    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!endGoal', '!stop'].includes(name) ||
+    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!supervisor', '!endGoal', '!stop'].includes(name) ||
         name === '!resetShelter' && agent.gather_goal.kind === 'shelter';
 }
-export async function startGatherGoal(agent, item, target, collect, pickup, { resourceRecovery = false } = {}) {
+export async function startGatherGoal(agent, item, target, collect, pickup, { resourceRecovery = false, requestContext } = {}) {
     if (!Number.isSafeInteger(target) || target < 1 || target > 64)
         return 'Choose a total inventory target from 1 to 64.';
     if (!item.endsWith('_log') || !agent.bot.registry.blocksByName[item] || !agent.bot.registry.itemsByName[item])
@@ -24,8 +24,9 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
     agent.bot.once('death', stopOnDeath);
     agent.bot.once('end', stopOnEnd);
     try {
-        await agent.self_prompter.stop();
+        agent.main_supervisor?.beginGoal(goal, requestContext);
         agent.local_memory?.beginGoal(goal);
+        await agent.self_prompter.stop();
         await agent.history.save();
     } catch (error) {
         goal.active = false;
@@ -33,6 +34,8 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
         agent.bot.removeListener('death', stopOnDeath);
         agent.bot.removeListener('end', stopOnEnd);
         agent.gather_epoch = (agent.gather_epoch || 0) + 1;
+        agent.main_supervisor?.finishGoal(goal, false, 'Collection startup failed: ' + error.message);
+        if (goal.memoryId) agent.local_memory?.finishGoal(goal, false, 'Collection startup failed: ' + error.message);
         throw error;
     }
     goal.done = (async () => {
@@ -54,10 +57,11 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
                 }
                 let verified = false;
                 const step = { type: 'gather', item };
+                agent.main_supervisor?.setStep(goal, step);
                 agent.local_memory?.beginStep(goal, step);
                 const result = await agent.actions.runAction('action:gatherGoal', async () => {
                     if (!goal.cancelled) verified = await collectAndVerify(agent, goal, item, collect, pickup);
-                }, { timeout: 1 });
+                }, { timeout: 1, goal });
                 if (goal.cancelled) break;
                 agent.local_memory?.stepResult(goal, step, verified);
                 const after = countItem(agent.bot, item);
@@ -85,7 +89,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
         } finally {
             goal.active = false;
             if (agent.bot.managedGoal === goal) delete agent.bot.managedGoal;
-            agent.local_memory?.finishGoal(goal, completed, report);
+            ({ completed, report } = finishManagedGoal(agent, goal, completed, report));
             agent.gather_epoch = (agent.gather_epoch || 0) + 1;
             agent.bot.removeListener('death', stopOnDeath);
             agent.bot.removeListener('end', stopOnEnd);
@@ -100,8 +104,9 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
     return `Collection target set: keep at least ${target} ${item}. Inventory checks will stop the goal automatically.`;
 }
 export async function cancelGatherGoal(agent) {
-    agent.local_memory?.cancelGoal();
     const goal = agent.gather_goal;
+    agent.main_supervisor?.cancelGoal(goal);
+    agent.local_memory?.cancelGoal();
     if (!goal?.active) return;
     goal.cancelled = true;
     goal.cancelReason = 'cancelled';

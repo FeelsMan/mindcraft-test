@@ -12,6 +12,11 @@ const pad = (str) => {
 // queries are commands that just return strings and don't affect anything in the world
 export const queryList = [
     {
+        name: '!supervisor',
+        description: 'Inspect the Main Supervisor: active or saved managed goal, specialist, physical action owner, pause/block reason and freshly observed health/hunger. Read-only; available during managed work.',
+        perform: agent => agent.main_supervisor?.summary() || 'Main Supervisor is unavailable.'
+    },
+    {
         name: '!memory',
         description: 'Inspect local memory for this world/dimension: saved goal, verified outcomes, stations and resource areas. These are historical observations; check live state before acting.',
         perform: agent => agent.local_memory?.summary() || 'Local memory is unavailable.'

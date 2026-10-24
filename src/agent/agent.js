@@ -1,4 +1,5 @@
 import { reportManagedGoal } from './managed_goal_report.js';
+import { installMainSupervisor } from '../adapters/minecraft/supervisor.js';
 import { installDeathRecovery } from './death_recovery.js';
 import { installLocalMemory } from './memory_runtime.js';
 import { requestActionInterrupt } from './action_interrupt.js';
@@ -98,6 +99,7 @@ export class Agent {
         });
 
         initModes(this);
+        installMainSupervisor(this);
 
         this.bot.on('login', () => {
             console.log(this.name, 'logged in!');
@@ -240,7 +242,9 @@ export class Agent {
     }
 
     async resumeMemoryGoal(manual = false, requestContext = null) {
-        return await this.local_memory?.resume(command => executeCommand(this, command, requestContext), { manual }) || false;
+        const restore = valid => this.local_memory?.resume(command => valid() ?
+            executeCommand(this, command, requestContext) : 'Resume cancelled.', { manual }) || false;
+        return this.main_supervisor ? this.main_supervisor.resume(restore) : restore(() => true);
     }
 
     async onManagedGoalCompleted(event) {

@@ -1,6 +1,6 @@
 import { planMake, inventoryCounts } from './make_goal.js';
 import { countItem, cancelGatherGoal } from './gather_goal.js';
-import { actionFailureDetail, collectAndVerify, waitForGoalTurn, waitForInventory } from './managed_goal.js';
+import { actionFailureDetail, collectAndVerify, waitForGoalTurn, waitForInventory, finishManagedGoal } from './managed_goal.js';
 import { shelterBlueprint, shelterRecord } from './shelter_blueprint.js';
 import { inspectShelter, findShelterSite, placeShelterBlock, clearShelterPlant, enterAndVerifyShelter } from './shelter_building.js';
 import { walkSafely } from './navigation_recovery.js';
@@ -31,10 +31,15 @@ export async function startShelterGoal(agent, api) {
         bot.removeListener('death', onDeath); bot.removeListener('end', onEnd);
     };
     try {
-        await agent.self_prompter.stop();
+        agent.main_supervisor?.beginGoal(goal, request);
         agent.local_memory?.beginGoal(goal);
+        await agent.self_prompter.stop();
         await agent.history.save();
-    } catch (error) { cleanup(); throw error; }
+    } catch (error) {
+        cleanup(); agent.main_supervisor?.finishGoal(goal, false, 'Shelter startup failed: ' + error.message);
+        if (goal.memoryId) agent.local_memory?.finishGoal(goal, false, 'Shelter startup failed: ' + error.message);
+        throw error;
+    }
 
     const travel = () => api.navigation(bot);
     const active = () => !goal.cancelled && !bot.interrupt_code && String(bot.game?.dimension ?? 'unknown') === dimension;
@@ -64,6 +69,7 @@ export async function startShelterGoal(agent, api) {
                     if (!step && state.needsDoor) step = { type: 'place', item: 'oak_door', position: state.door };
                     step ??= { type: 'finish', item: 'shelter', position: state.inside };
                 }
+                agent.main_supervisor?.setStep(goal, step);
                 agent.local_memory?.beginStep(goal, step);
                 console.log('Shelter next step:', step);
                 let verified = false;
@@ -97,7 +103,7 @@ export async function startShelterGoal(agent, api) {
                     } else if (step.type === 'finish') {
                         verified = await build.finish(bot, goal.shelter, travel(), active, { verifyMs: api.verifyTimeoutMs });
                     }
-                }, { timeout: 1 });
+                }, { timeout: 1, goal });
                 if (goal.cancelled) break;
                 agent.local_memory?.stepResult(goal, step, verified);
                 if (result.timedout) throw new Error('Shelter action timed out; site and partial build retained.');
@@ -125,7 +131,7 @@ export async function startShelterGoal(agent, api) {
         } catch (error) { report = 'Shelter stopped: ' + error.message; }
         finally {
             cleanup(); completionEpoch = agent.gather_epoch;
-            agent.local_memory?.finishGoal(goal, completed, report);
+            ({ completed, report } = finishManagedGoal(agent, goal, completed, report));
         }
         console.log(report);
         await agent.history.add('system', report); await agent.history.save();

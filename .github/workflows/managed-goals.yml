@@ -13,6 +13,7 @@ on:
       - mia/live-world-memory-2026-10-23
       - mia/station-pickup-2026-10-23
       - mia/navigation-progress-2026-10-23
+      - mia/main-supervisor-2026-10-23
   pull_request:
     paths:
       - 'src/**'
@@ -66,8 +67,8 @@ jobs:
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:
-          name: mia-navigation-progress-fix
-          path: scripts/mia-navigation-progress-fix.cjs
+          name: mia-main-supervisor-update
+          path: scripts/mia-main-supervisor-update.cjs
           if-no-files-found: error
           retention-days: 30
 
@@ -108,4 +109,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node node_modules/patch-package/index.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js test/grounded-crafting.test.js test/navigation-progress.test.js
+          node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js test/grounded-crafting.test.js test/navigation-progress.test.js test/main-supervisor.test.js

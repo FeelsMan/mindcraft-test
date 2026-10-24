@@ -1,5 +1,5 @@
 import { countItem } from './gather_goal.js';
-import { actionFailureDetail, collectAndVerify, waitForInventory, waitForGoalTurn } from './managed_goal.js';
+import { actionFailureDetail, collectAndVerify, waitForInventory, waitForGoalTurn, finishManagedGoal } from './managed_goal.js';
 import { smeltingRecipes, furnacePending, furnaceEnergy, reserveFuel, SMELT_TICKS, ironPickaxes } from './smelting_plan.js';
 
 const toolKinds = ['axe', 'pickaxe', 'shovel', 'hoe', 'sword'];
@@ -135,10 +135,15 @@ export async function startMakeGoal(agent, item, target, api) {
         agent.bot.removeListener('end', onEnd);
     };
     try {
-        await agent.self_prompter.stop();
+        agent.main_supervisor?.beginGoal(goal, requestContext);
         agent.local_memory?.beginGoal(goal);
+        await agent.self_prompter.stop();
         await agent.history.save();
-    } catch (error) { cleanup(); throw error; }
+    } catch (error) {
+        cleanup(); agent.main_supervisor?.finishGoal(goal, false, 'Crafting startup failed: ' + error.message);
+        if (goal.memoryId) agent.local_memory?.finishGoal(goal, false, 'Crafting startup failed: ' + error.message);
+        throw error;
+    }
     const describe = steps => steps.map(s => s.type === 'gather' ?
         `gather ${s.count} ${s.item}` : s.type === 'recover' ? 'recover my crafting table' :
         s.type === 'inspect' ? 'inspect my furnace' : s.type === 'smelt' ? `smelt ${s.count} ${s.item} (verify each output)` :
@@ -165,6 +170,7 @@ export async function startMakeGoal(agent, item, target, api) {
                 const step = steps[0];
                 if (!step) throw new Error('Planner produced no next step.');
                 const before = countItem(agent.bot, step.item);
+                agent.main_supervisor?.setStep(goal, step);
                 agent.local_memory?.beginStep(goal, step);
                 // One batch/block per action, then plan again from real inventory.
                 console.log('Make next step:', step);
@@ -187,7 +193,7 @@ export async function startMakeGoal(agent, item, target, api) {
                         await api.craft(agent.bot, step.item, 1);
                         verified = await waitForInventory(agent, goal, step.item, before + step.output, api.verifyTimeoutMs);
                     }
-                }, { timeout: 1 });
+                }, { timeout: 1, goal });
                 if (goal.cancelled) break;
                 agent.local_memory?.stepResult(goal, step, verified);
                 if (result.timedout) {
@@ -220,7 +226,7 @@ export async function startMakeGoal(agent, item, target, api) {
             // cleanup advances the epoch. Capture it before asynchronous history
             // persistence so newer goals/instructions can invalidate this report.
             completionEpoch = agent.gather_epoch;
-            agent.local_memory?.finishGoal(goal, completed, report);
+            ({ completed, report } = finishManagedGoal(agent, goal, completed, report));
         }
         console.log(report);
         await agent.history.add('system', report);

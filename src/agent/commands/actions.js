@@ -83,8 +83,8 @@ export const actionsList = [
             item: { type: 'ItemName', description: 'Log item, such as oak_log.' },
             count: { type: 'int', description: 'Total desired in inventory, including existing logs.', domain: [1, 64] }
         },
-        perform: async (agent, item, count) => startGatherGoal(agent, item, count, skills.collectBlock,
-            (bot, name) => skills.pickupNearbyItems(bot, { itemName: name }), { resourceRecovery: true })
+        perform: async (agent, item, count, requestContext = null) => startGatherGoal(agent, item, count, skills.collectBlock,
+            (bot, name) => skills.pickupNearbyItems(bot, { itemName: name }), { resourceRecovery: true, requestContext })
     },
     {
         name: '!newAction',

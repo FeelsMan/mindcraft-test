@@ -1,6 +1,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { shelterWorld } from './helpers/shelter-world.js';
+import { installMainSupervisor } from '../src/adapters/minecraft/supervisor.js';
 
 // Exercise the real parser/catalog/controller. Only Minecraft skill I/O and
 // the login-initialized recipe lookup are supplied by the world fixture.
@@ -17,6 +18,16 @@ mock.module(new URL('../src/utils/mcdata.js', import.meta.url).href, { namedExpo
     ...mc, getItemCraftingRecipes: name => fixture.api.recipes(name)
 } });
 const { executeCommand, getCommandDocs } = await import('../src/agent/commands/index.js');
+
+test('supervisor query uses the real catalog and remains read-only during active work', async () => {
+    fixture = shelterWorld();
+    installMainSupervisor(fixture.agent);
+    fixture.agent.gather_goal = { active: true };
+    const before = fixture.calls.length;
+    assert.match(await executeCommand(fixture.agent, '!supervisor'), /MAIN SUPERVISOR v1/);
+    assert.equal(fixture.calls.length, before);
+    assert.match(getCommandDocs(fixture.agent), /!supervisor/);
+});
 
 test('shelter command starts without owning its own action slot and routes one verified completion to the requester', async () => {
     fixture = shelterWorld('1.21.4', { oak_planks: 58, oak_door: 1 });

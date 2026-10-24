@@ -28,9 +28,9 @@ export class ActionManager {
 
     async resumeAction() { return this._executeResume(); }
 
-    async runAction(label, fn, { timeout = 10, resume = false } = {}) {
+    async runAction(label, fn, { timeout = 10, resume = false, goal = null } = {}) {
         if (resume) return this._executeResume(label, fn, timeout);
-        return this._executeAction(label, fn, timeout);
+        return this._executeAction(label, fn, timeout, goal);
     }
 
     async stop(reason = 'stop') {
@@ -71,7 +71,7 @@ export class ActionManager {
         return { success: false, message: null, interrupted: false, timedout: false };
     }
 
-    async _executeAction(label, fn, timeout = 10) {
+    async _executeAction(label, fn, timeout = 10, goal = null) {
         // Serialize handoffs, not whole actions: an emergency can request a
         // stop immediately, but two waiters cannot both claim the bot afterward.
         const previous = this.handoff;
@@ -81,12 +81,17 @@ export class ActionManager {
         let run;
         try {
             const priority = actionPriority(label);
+            const denied = this.agent.main_supervisor?.actionUnavailable(label, goal, priority);
+            if (denied) return deferred(denied);
             if (this.agent.gather_goal?.active && priority < 50)
                 return deferred('A managed goal owns the action slot.');
             if (this.currentRun && priority < this.currentRun.priority)
                 return deferred(`Waiting for ${this.currentActionLabel}.`);
             await this.stop(label);
             if (this.agent.recovering_from_death) return deferred('Waiting for respawn recovery.');
+            // A stop/replacement can arrive while the previous action settles.
+            const obsolete = this.agent.main_supervisor?.actionUnavailable(label, goal, priority);
+            if (obsolete) return deferred(obsolete);
             run = { label, priority, interruptedBy: null, timedout: false };
             this.currentRun = run;
             this.executing = true;
@@ -95,6 +100,7 @@ export class ActionManager {
             this.timedout = false;
             this.last_action_time = Date.now();
             this.agent.clearBotLogs();
+            this.agent.main_supervisor?.actionStarted(run);
         } finally { release(); }
 
         let error = null;
@@ -116,6 +122,7 @@ export class ActionManager {
             this.cancelResume();
         }
         const result = { success: !error, message, interrupted, timedout: run.timedout, interruptedBy: run.interruptedBy };
+        this.agent.main_supervisor?.actionFinished(run, result);
         this.agent.clearBotLogs();
         this.currentRun = null;
         this.executing = false;

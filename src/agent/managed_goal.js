@@ -18,6 +18,7 @@ export function modeAllowedDuringGoal(agent, name) {
 }
 
 export async function waitForGoalTurn(agent, goal) {
+    if (agent.main_supervisor) return agent.main_supervisor.waitForTurn(goal);
     let calmSince = null;
     while (!goal.cancelled) {
         const busy = agent.actions.executing || agent.recovering_from_death ||
@@ -50,6 +51,12 @@ export async function waitForInventory(agent, goal, name, minimum, timeoutMs = 1
         await sleep(Math.min(50, Math.max(1, end - Date.now())));
     }
     return false;
+}
+
+export function finishManagedGoal(agent, goal, completed, report) {
+    const outcome = agent.main_supervisor?.finishGoal(goal, completed, report) || { completed, report };
+    agent.local_memory?.finishGoal(goal, outcome.completed, outcome.report);
+    return outcome;
 }
 
 // Mining completion and dropped-item pickup are separate server events. The
