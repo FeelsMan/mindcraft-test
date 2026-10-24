@@ -1,5 +1,6 @@
 import { reportManagedGoal } from './managed_goal_report.js';
 import { installMainSupervisor } from '../adapters/minecraft/supervisor.js';
+import { installSurvivalSupervisor } from '../adapters/minecraft/survival.js';
 import { installDeathRecovery } from './death_recovery.js';
 import { installLocalMemory } from './memory_runtime.js';
 import { requestActionInterrupt } from './action_interrupt.js';
@@ -100,6 +101,7 @@ export class Agent {
 
         initModes(this);
         installMainSupervisor(this);
+        installSurvivalSupervisor(this);
 
         this.bot.on('login', () => {
             console.log(this.name, 'logged in!');
@@ -559,6 +561,7 @@ export class Agent {
     async update(delta) {
         if (this._shuttingDown || this.recovering_from_death) return;
         await this.bot.modes.update();
+        if (this.survival_supervisor?.active) return;
         this.self_prompter.update(delta);
         await this.checkTaskDone();
     }

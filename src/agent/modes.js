@@ -420,10 +420,12 @@ class ModeController {
     }
 
     async update() {
+        _agent.survival_supervisor?.update();
         if (_agent.isIdle()) {
             this.unPauseAll();
         }
         for (let mode of modes_list) {
+            if (_agent.survival_supervisor?.active && mode.name !== 'self_preservation') continue;
             if (!modeAllowedDuringGoal(_agent, mode.name)) continue;
             let interruptible = mode.interrupts.some(i => i === 'all') || mode.interrupts.some(i => i === _agent.actions.currentActionLabel);
             if (mode.on && !mode.paused && !mode.active && (_agent.isIdle() || interruptible)) {

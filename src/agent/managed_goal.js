@@ -14,6 +14,7 @@ export function countInventoryItem(bot, name) {
 }
 
 export function modeAllowedDuringGoal(agent, name) {
+    if (agent.survival_supervisor?.active) return name === 'self_preservation';
     return !agent.gather_goal?.active || emergencyModes.has(name);
 }
 
@@ -21,7 +22,7 @@ export async function waitForGoalTurn(agent, goal) {
     if (agent.main_supervisor) return agent.main_supervisor.waitForTurn(goal);
     let calmSince = null;
     while (!goal.cancelled) {
-        const busy = agent.actions.executing || agent.recovering_from_death ||
+        const busy = agent.actions.executing || agent.recovering_from_death || agent.survival_supervisor?.active ||
             (agent.bot.modes.getActiveModes?.() || []).some(name => emergencyModes.has(name));
         if (busy) {
             calmSince = null;

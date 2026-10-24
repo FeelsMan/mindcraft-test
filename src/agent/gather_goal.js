@@ -104,10 +104,15 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
     return `Collection target set: keep at least ${target} ${item}. Inventory checks will stop the goal automatically.`;
 }
 export async function cancelGatherGoal(agent) {
+    const survivalActive = agent.survival_supervisor?.active;
+    agent.survival_supervisor?.cancel();
     const goal = agent.gather_goal;
     agent.main_supervisor?.cancelGoal(goal);
     agent.local_memory?.cancelGoal();
-    if (!goal?.active) return;
+    if (!goal?.active) {
+        if (survivalActive) await agent.actions.stop();
+        return;
+    }
     goal.cancelled = true;
     goal.cancelReason = 'cancelled';
     agent.gather_epoch = (agent.gather_epoch || 0) + 1;
