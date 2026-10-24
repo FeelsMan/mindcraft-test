@@ -2,7 +2,7 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import { shelterBlueprint, shelterRecord, knownShelter } from './shelter_blueprint.js';
 import { safeSolid, safeEmpty, safeFeet, walkSafely, planSafePath } from './navigation_recovery.js';
-import { safeMiningMovements } from './navigation_policy.js';
+import { safeMiningMovements, guardShelterDoor } from './navigation_policy.js';
 import { blockFaceReachable } from './block_interaction.js';
 import { sleep } from './managed_goal.js';
 
@@ -13,6 +13,39 @@ const fullFloor = block => safeSolid(block) && !block.name.endsWith('_leaves') &
     block.shapes?.some(s => s.every((n, i) => n === (i < 3 ? 0 : 1)));
 const key = p => `${p.x},${p.y},${p.z}`;
 const properties = block => block?.getProperties?.() || {};
+
+function insideShelter(plan, p) {
+    const interior = p.x >= plan.origin.x + 1 && p.x < plan.origin.x + 4 &&
+        p.z >= plan.origin.z + 1 && p.z < plan.origin.z + 4;
+    // A server can leave the feet in the door cell. The half toward the
+    // interior must still count as inside when deciding how to leave.
+    const threshold = p.x >= plan.door.x && p.x < plan.door.x + 1 &&
+        p.z >= plan.door.z + 0.5 && p.z < plan.door.z + 1;
+    return (interior || threshold) && p.y >= plan.origin.y && p.y < plan.origin.y + 2;
+}
+
+const closedDoorTravel = (bot, record, api) => ({ ...api,
+    movements: () => guardShelterDoor(api.movements(), record) });
+
+// Placement targets are wall/roof blocks, not destinations for the player's
+// feet. Select actual work cells on one side, then explicitly cross the owned
+// entrance if those cells require it. Retain the live face/support predicate.
+async function walkToShelterWork(bot, record, target, goal, api, timeoutMs = 12000) {
+    const plan = shelterBlueprint(record), deadline = Date.now() + timeoutMs;
+    const points = goal.goals || [], fromInside = insideShelter(plan, bot.entity.position);
+    const groups = [fromInside, !fromInside].map(side =>
+        points.filter(p => insideShelter(plan, p) === side)).filter(group => group.length);
+    for (let i = 0; i < groups.length && !bot.interrupt_code && Date.now() < deadline; i++) {
+        const group = groups[i], destination = new Vec3(group[0].x, group[0].y, group[0].z);
+        await prepareShelterTravel(bot, destination, closedDoorTravel(bot, record, api));
+        if (bot.interrupt_code) return false;
+        const selected = new pf.goals.GoalCompositeAny(group), matches = selected.isEnd.bind(selected);
+        selected.isEnd = at => matches(at) && goal.isEnd(at);
+        if (await walkSafely(bot, target, { ...closedDoorTravel(bot, record, api), prepareTravel: undefined,
+            goal: selected, timeoutMs: Math.max(1, Math.floor((deadline - Date.now()) / (groups.length - i))) })) return true;
+    }
+    return false;
+}
 
 export function shelterDoor(bot, record) {
     const { door } = shelterBlueprint(record);
@@ -187,7 +220,7 @@ export async function placeShelterBlock(bot, record, step, api, active, { verify
         inspect();
         const work = placementGoal(bot, p, itemName, record.origin.y, excluded);
         if (!work) throw new Error('No supported position with a visible placement face at ' + p + '. ' + lastReason);
-        if (!await walkSafely(bot, p, { ...api, goal: work.goal, timeoutMs: Math.max(1, deadline - Date.now()) })) {
+        if (!await walkToShelterWork(bot, record, p, work.goal, api, Math.max(1, deadline - Date.now()))) {
             if (!active()) return false;
             throw new Error('Safe route did not reach a shelter work position for ' + p + '; actual feet: ' + bot.entity.position + '.');
         }
@@ -254,7 +287,7 @@ export async function clearShelterPlant(bot, record, step, api, active, { verify
     }
     if (!feet.length) throw new Error('No safe position to clear a plant at ' + p + '.');
     const goal = new pf.goals.GoalCompositeAny(feet.map(p => new pf.goals.GoalBlock(p.x, p.y, p.z)));
-    if (!await walkSafely(bot, p, { ...api, goal }) || !active()) return false;
+    if (!await walkToShelterWork(bot, record, p, goal, api) || !active()) return false;
     const current = bot.blockAt(p);
     if (!plants.has(current?.name) || !plantReachable(bot, p, bot.entity.position.floored())) return air(current);
     await bot.dig(current, true);
@@ -311,10 +344,10 @@ export async function prepareShelterTravel(bot, destination, api, { verifyMs = 1
     const record = knownShelter(bot);
     if (!record || bot.shelterCrossing || bot.interrupt_code || !destination) return;
     const plan = shelterBlueprint(record), dimension = String(bot.game?.dimension ?? 'unknown');
-    const inside = p => p.x >= plan.origin.x + 1 && p.x < plan.origin.x + 4 &&
-        p.z >= plan.origin.z + 1 && p.z < plan.origin.z + 4 && p.y >= plan.origin.y && p.y < plan.origin.y + 2;
+    const inside = p => insideShelter(plan, p);
     const fromInside = inside(bot.entity.position);
-    if (fromInside === inside(destination)) return;
+    const inDoorway = overlaps(bot.entity, plan.door, 2);
+    if (fromInside === inside(destination) && !inDoorway) return;
     // A partial build without a door has an open doorway already.
     const lower = bot.blockAt(plan.door), upper = bot.blockAt(plan.door.offset(0, 1, 0));
     if (air(lower) && air(upper)) return;
@@ -322,12 +355,17 @@ export async function prepareShelterTravel(bot, destination, api, { verifyMs = 1
     bot.shelterCrossing = true;
     try {
         const entry = fromInside ? plan.origin.offset(2, 0, 1) : plan.outside;
-        if (!await walkSafely(bot, entry, { ...api, prepareTravel: undefined }) || !active() ||
+        // A correction can leave Mia immediately against the panel, inside
+        // its block cell. Open from there before trying to walk to a stance;
+        // that stance may be across the still-closed panel.
+        const approached = inDoorway || await walkSafely(bot, entry,
+            { ...closedDoorTravel(bot, record, api), prepareTravel: undefined });
+        if (!approached || !active() ||
             !shelterDoor(bot, record).present || !await setShelterPassage(bot, record, true, active, verifyMs)) {
             if (active()) throw new Error('Could not open the remembered shelter door safely; travel stopped.');
             return;
         }
-        if (!await walkSafely(bot, fromInside ? plan.outside : plan.inside, openDoorTravel(bot, record, api)) ||
+        if (!await walkSafely(bot, inside(destination) ? plan.inside : plan.outside, openDoorTravel(bot, record, api)) ||
             !await setShelterPassage(bot, record, false, active, verifyMs)) {
             if (active()) throw new Error('Could not verify passage through the remembered shelter door; travel stopped.');
             return;
@@ -351,7 +389,7 @@ export async function enterAndVerifyShelter(bot, record, api, active, { verifyMs
     // The builder controls the door itself during final verification. Bypass
     // the general travel hook so it cannot close the door mid entrance test.
     api = { ...api, prepareTravel: undefined };
-    if (!await walkSafely(bot, plan.door, { ...api, goal: work }) ||
+    if (!await walkToShelterWork(bot, record, plan.door, work, api) ||
         !await setShelterPassage(bot, record, true, active, verifyMs)) return false;
     const doorwayTravel = openDoorTravel(bot, record, api);
     if (!active() || !await walkSafely(bot, plan.outside, doorwayTravel)) return false;

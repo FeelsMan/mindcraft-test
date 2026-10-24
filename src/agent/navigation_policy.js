@@ -3,6 +3,21 @@ import { knownShelter, shelterBlueprint } from './shelter_blueprint.js';
 const urgentModes = new Set(['self_preservation', 'cowardice', 'self_defense']);
 const ingredients = ['cobblestone', 'oak_log', 'oak_planks', 'oak_door', 'stick', 'crafting_table', 'furnace', 'raw_iron', 'iron_ingot', 'coal', 'charcoal'];
 
+// The owned entrance has one explicit crossing controller. Ordinary A* must
+// not toggle it or choose it as a shortcut after that controller closes it.
+export function guardShelterDoor(movements, record) {
+    const { door } = shelterBlueprint(record), getBlock = movements.getBlock.bind(movements);
+    movements.getBlock = (...args) => {
+        const block = getBlock(...args), p = block.position;
+        if (block.name === 'oak_door' && p?.x === door.x && p.z === door.z &&
+            (p.y === door.y || p.y === door.y + 1)) {
+            block.safe = false; block.physical = true; block.openable = false;
+        }
+        return block;
+    };
+    return movements;
+}
+
 // Pathfinder calls these "scafoldingBlocks" (one f). Protect recipe supplies
 // during routine movement, including unstuck. Actual combat/escape may spend
 // them; the managed goal will then replan from the surviving inventory.
@@ -10,6 +25,7 @@ export function protectCraftingMaterials(bot, movements) {
     const urgent = (bot.modes?.getActiveModes?.() || []).some(name => urgentModes.has(name));
     const home = !urgent && knownShelter(bot);
     if (home) {
+        guardShelterDoor(movements, home);
         const plan = shelterBlueprint(home), reserved = new Set(plan.blocks.map(s => s.position.toString()));
         reserved.add(plan.door.toString()); reserved.add(plan.door.offset(0, 1, 0).toString());
         for (let x = 0; x < 5; x++) for (let z = 0; z < 5; z++) reserved.add(plan.origin.offset(x, -1, z).toString());

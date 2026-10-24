@@ -14,6 +14,7 @@ on:
       - mia/station-pickup-2026-10-23
       - mia/navigation-progress-2026-10-23
       - mia/main-supervisor-2026-10-23
+      - mia/shelter-repair-2026-10-24
   pull_request:
     paths:
       - 'src/**'
@@ -67,8 +68,8 @@ jobs:
       - name: Package the verified installer
         uses: actions/upload-artifact@v4
         with:
-          name: mia-main-supervisor-update
-          path: scripts/mia-main-supervisor-update.cjs
+          name: mia-shelter-repair-update
+          path: scripts/mia-shelter-repair-update.cjs
           if-no-files-found: error
           retention-days: 30
 

@@ -13,6 +13,7 @@ import { walkSafely, safeWaypoints, gotoWithProgress } from '../navigation_recov
 import { collectWithRecovery } from '../resource_recovery.js';
 import { approachStation, canUseStation, placeSupportedStation } from '../station_access.js';
 import { prepareShelterTravel, leaveShelterForResource } from '../shelter_building.js';
+import { knownShelter, shelterBlueprint } from '../shelter_blueprint.js';
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -1301,6 +1302,7 @@ function startDoorInterval(bot) {
 
 
     const doorCheckInterval = setInterval(() => {
+        if (bot.shelterCrossing) return;
         const now = Date.now();
         if (bot.entity.position.distanceTo(prev_pos) >= 0.1) {
             stuck_time = 0;
@@ -1332,6 +1334,9 @@ function startDoorInterval(bot) {
             
             for (let position of positions) {
                 let block = bot.blockAt(position);
+                const home = knownShelter(bot), door = home && shelterBlueprint(home).door;
+                if (door && block?.position?.x === door.x && block.position.z === door.z &&
+                    [door.y, door.y + 1].includes(block.position.y)) continue;
                 if (block && block.name &&
                     !block.name.includes('iron') &&
                     (block.name.includes('door') ||

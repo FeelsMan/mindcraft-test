@@ -2,6 +2,7 @@ import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import { safeMiningMovements } from './navigation_policy.js';
 import { NavigationProgress } from './navigation_progress.js';
+import { observePositionCorrections } from './position_corrections.js';
 
 const hazards = new Set(['water', 'lava', 'fire', 'soul_fire', 'magma_block', 'cactus', 'campfire', 'soul_campfire', 'powder_snow']);
 export const safeSolid = block => block?.boundingBox === 'block' && !hazards.has(block.name);
@@ -88,8 +89,10 @@ export async function gotoWithProgress(bot, goal, movements, { deadline = Date.n
     };
     const ended = () => stop('disconnected');
     const died = () => stop('death');
-    const teleported = () => stop('world_changed');
-    bot.on?.('path_update', update); bot.once?.('end', ended); bot.once?.('death', died); bot.once?.('forcedMove', teleported);
+    const unwatchCorrections = observePositionCorrections(bot, correction => {
+        if (correction.relocated) stop('world_changed');
+    });
+    bot.on?.('path_update', update); bot.once?.('end', ended); bot.once?.('death', died);
     update({ status: 'success', path });
     try {
         bot.pathfinder.setMovements(movements);
@@ -124,7 +127,7 @@ export async function gotoWithProgress(bot, goal, movements, { deadline = Date.n
     } finally {
         clearInterval(timer);
         bot.removeListener?.('path_update', update); bot.removeListener?.('end', ended);
-        bot.removeListener?.('death', died); bot.removeListener?.('forcedMove', teleported);
+        bot.removeListener?.('death', died); unwatchCorrections();
         if (owns() && bot.pathfinder.goal === goal) bot.pathfinder.setGoal(null);
         token.active = false;
         if (bot.navigationRecovery === token) bot.navigationRecovery = previous;
