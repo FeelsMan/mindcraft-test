@@ -25,11 +25,18 @@ While health is below 18,
 carried food is used up to full hunger to support healing. Observation gaps
 hold the task rather than inventing safety.
 
-Each intervention has a 90-second work budget, at most three retreat actions
-and six food actions. Exhaustion leaves a visible blocked recovery reason;
-fresh acceptable conditions can still release the task. No food produces a
-blocked reason because existing managed gathering does not implement food
-acquisition. It does not start optional hunting during danger.
+Each intervention has a 90-second retreat budget, at most three retreat actions
+and six independently timed food actions. Exhausted movement does not disable
+feeding: newly supplied food or a cleared threat can permit a verified meal
+after the retreat deadline. Refuge validity, live danger and meal limits are
+still checked; food does not renew movement or meal attempts. Recovery releases
+only after the observed exit conditions hold. Missing food reports that edible
+food must be supplied; automatic food acquisition remains unavailable.
+
+Even when no physical meal or route can start, recovery settles the previous
+action once through ActionManager. Ongoing travel or mining cannot continue
+behind a blocked status. Holding does not repeatedly acquire the action slot,
+and cancellation or emergency ownership invalidates/defer queued work as usual.
 
 ## Verification and ownership
 
@@ -74,3 +81,18 @@ Windows memory 61/61, focused Survival 42/42, with no skips in those successful
 runs. The full-history suite includes installer upgrades, private-state
 preservation and exact rollback. A sandbox temporary-file rename restriction
 required unrestricted isolated memory/full-suite reruns.
+
+## Recovery correction — October 24, 2026
+
+Joe's live log showed verified shelter arrival, missing carried food, exhausted
+retreat/time limits and a subsequent shelter request waiting for safety recovery.
+That is a blocked live run, not an interruption/resumption pass. The correction
+above permits safe feeding after the movement deadline and pauses incumbent
+work even while blocked. The packaging builder now extends the current Survival
+distribution so its source hashes remain accepted on the next update; successive
+rebuilds reload their on-disk template. Historical compatibility and exact rollback
+remain covered. Release: `mia-survival-recovery-2026-10-24`; download filename:
+`mia-survival-recovery-update.cjs`. Fresh Node 22.23.2 validation passed 425/425
+regressions with no skips, including 49 Survival cases. All 66 embedded files
+match source. Publication/Windows and live outcomes are recorded separately in
+`MIA_PROJECT.md`.

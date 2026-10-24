@@ -9,7 +9,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const BASELINE = 'e81fcab25d0f31fa0e1527b9a55ee4a7af2f8cec';
-const RELEASE_ID = 'mia-survival-supervisor-v1-2026-10-24';
+const RELEASE_ID = 'mia-survival-recovery-2026-10-24';
 const NEW_FILES = [
     'src/supervisors/survival.js',
     'src/adapters/minecraft/survival.js',
@@ -40,10 +40,14 @@ function argumentsOf(argv) {
     options.historyRoot = path.resolve(options.historyRoot ||
         (fs.existsSync(path.join(options.root, '.mia-development/survival-v1/.git')) ?
             path.join(options.root, '.mia-development/survival-v1') : options.root));
+    // Extend the current distribution so its installed source remains an
+    // accepted upgrade baseline, including files introduced by Survival v1.
+    const templates = ['scripts/mia-survival-supervisor-update.cjs', 'mia-survival-supervisor-update.cjs',
+        'scripts/mia-shelter-repair-update.cjs', 'mia-shelter-repair-update.cjs'];
     options.template = path.resolve(options.template ||
-        (fs.existsSync(path.join(options.root, 'mia-shelter-repair-update.cjs')) ?
-            path.join(options.root, 'mia-shelter-repair-update.cjs') :
-            path.join(options.root, 'scripts/mia-shelter-repair-update.cjs')));
+        templates.map(relative => path.join(options.root, relative)).find(filename => fs.existsSync(filename)) ||
+        path.join(options.root, templates[2]));
+    if (!Array.isArray(options.extra)) throw Error('Extra source paths must be an array.');
     return options;
 }
 
@@ -80,6 +84,9 @@ function originalFile(options, relative) {
 }
 
 function build(options) {
+    // A caller may build twice in one process after source changes. Reload
+    // the on-disk payload instead of losing the preceding build's hashes.
+    delete require.cache[require.resolve(options.template)];
     const template = require(options.template);
     const engine = fs.readFileSync(options.template, 'utf8');
     const entries = new Map(template.PAYLOAD.map(entry => [entry.path, { ...entry, before: [...entry.before] }]));

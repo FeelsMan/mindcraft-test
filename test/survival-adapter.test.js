@@ -248,6 +248,34 @@ test('adapter delegates physical work with a supervisor identity validator', asy
     assert.equal(observed[2].valid(), false);
 });
 
+for (const version of ['1.21.4', '26.3']) test(`native ${version} late supplies feed through real recovery ownership after the retreat deadline`, async () => {
+    const f = fixture(version), plan = built(f);
+    f.bot.health = 16;
+    f.bot.entities.zombie = { id: 1, name: 'zombie', position: plan.outside.offset(0.5, 0, 0.5) };
+    let now = 100000;
+    const supervisor = installSurvivalSupervisor(f.agent, { clock: () => now, budgetMs: 10,
+        calmMs: 10, verifyMs: 3, pollMs: 1 });
+    const tick = async () => { supervisor.update(); if (supervisor.flight) await supervisor.flight; };
+    await tick();
+    assert.equal(supervisor.refuge?.kind, 'shelter');
+    now += 11;
+    await tick();
+    assert.match(supervisor.view().reason, /No suitable food/);
+    f.stock.bread = 1;
+    f.bot.consume = async () => {
+        assert.equal(f.agent.actions.currentActionLabel, 'mode:survival');
+        f.stock.bread--; f.bot.food = 20;
+    };
+    await tick();
+    assert.match(supervisor.view().reason, /Consumed bread/);
+    assert.equal(f.stock.bread, 0);
+    assert.equal(supervisor.active, true, 'The nearby threat still holds recovery');
+    delete f.bot.entities.zombie;
+    await tick(); now += 11; await tick();
+    assert.equal(supervisor.active, false);
+    assert.equal(f.agent.actions.executing, false);
+});
+
 test('installation disables independent automatic eating before any survival tick', () => {
     const f = fixture(); let disabled = 0;
     f.bot.autoEat = { disable: () => { disabled++; } };

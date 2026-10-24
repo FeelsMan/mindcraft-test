@@ -75,9 +75,9 @@ export class MinecraftSurvivalAdapter {
         };
     }
 
-    run(token, fn) {
+    run(token, fn, valid = () => true) {
         return this.agent.actions.runAction('mode:survival', fn, { timeout: 0.75,
-            valid: () => Boolean(this.agent.survival_supervisor?.isCurrent(token)) });
+            valid: () => Boolean(this.agent.survival_supervisor?.isCurrent(token)) && valid() });
     }
 
     active(valid, scope, deathEpoch) {

@@ -8,7 +8,41 @@ Document status: shared project reference and Codex development handoff; impleme
 
 Canonical repository filenames: `MIA_PROJECT.md` for project context and `AGENTS.md` for concise coding instructions. Place both beside `package.json` and `main.js` in the Mindcraft repository. This reference supersedes older renamed copies such as `MIA_PROJECT-1.md`; preserve the existing project history when updating it.
 
-### Current implementation — October 24, 2026
+### Current recovery correction — October 24, 2026
+
+Joe's latest live log confirms Survival v1 reaches the observed intact shelter
+and seals its entrance. It then reports no suitable carried food, uses its
+retreat attempts, exhausts its recovery time and keeps a new `!shelterGoal`
+paused for safety recovery. A dashboard restart is visible in the log; it is
+not evidence of an unexplained crash. Record this as a blocked live run.
+
+The correction in `mia/survival-recovery-2026-10-24`, based on published
+`03e8ccc179030100a544cd3cb09de7fab82caa54`, separates bounded retreat from
+bounded feeding. Safe verified consumption can occur after the movement
+deadline when food arrives or threats clear. It does not renew retreat or
+meal attempts, assume an old refuge is safe, or release the original goal
+before observed exit conditions hold. A blocked/no-food intervention now
+settles an incumbent physical action once through the existing ActionManager.
+Cancellation still invalidates queued work and emergency priority is retained.
+
+The installer builder extends the current Survival payload and reloads each
+on-disk build so already-installed Survival files remain recognized through
+successive updates. It retains historical source compatibility and exact
+rollback. Release: `mia-survival-recovery-2026-10-24`; deliverable:
+`mia-survival-recovery-update.cjs`. Profiles, world identity, JSON/SQLite memory,
+dependencies and vendor packages are preserved. This cloud checkout cannot
+apply runtime edits to Joe's Windows installation.
+
+Fresh validation on Node **22.23.2**: **425/425** full regressions passed with
+zero skips, including **49** focused Survival cases, the installed Survival v1
+upgrade, exact rollback/private-state preservation and successive installer
+rebuilds. The final cumulative installer verifies all **66** embedded files.
+GitHub/Windows checks and publication are pending. Live acceptance remains
+open: supply edible food, observe verified consumption, clear the threat, and
+confirm the same saved repair resumes after sustained acceptable conditions.
+Do not reset the house, map or memory to work around blocked recovery.
+
+### Previous Survival v1 implementation — October 24, 2026
 
 Survival Supervisor v1 is now implemented locally in `src/supervisors/survival.js`
 with `src/adapters/minecraft/survival.js`. It uses the existing agent tick,
