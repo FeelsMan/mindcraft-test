@@ -275,12 +275,28 @@ test('teleport invalidates a decision and stops the stale action without cancell
     const f = fixture(t), goal = { kind: 'make', item: 'stone_axe', target: 1, active: true };
     f.memory.beginGoal(goal); f.agent.gather_goal = goal;
     f.agent.actions.executing = true; f.agent.actions.currentActionLabel = 'action:makeGoal';
-    const token = f.sync.token(); f.bot.entity.position = new Vec3(20, 70, 20); f.bot.emit('forcedMove');
+    const token = f.sync.token(), before = f.bot.entity.position;
+    f.bot.entity.position = new Vec3(20, 70, 20); f.bot.emit('move', before); f.bot.emit('forcedMove');
     await Promise.resolve();
     assert.deepEqual(f.stops, ['world_changed']); assert(f.sync.decisionChanged(token));
     assert.equal(f.sync.position.x, 20); assert.equal(f.memory.pendingGoal().item, 'stone_axe'); assert.equal(goal.cancelled, undefined);
     f.agent.actions.currentActionLabel = 'mode:self_defense'; f.bot.emit('forcedMove');
     assert.equal(f.stops.length, 1, 'Observation updates do not take ownership from combat');
+});
+
+test('repeated local corrections refresh observations without stopping work or invalidating the owned shelter', t => {
+    const f = fixture(t), record = f.own('crafting_table'), goal = { kind: 'shelter', active: true };
+    f.agent.gather_goal = goal; f.agent.actions.executing = true; f.agent.actions.currentActionLabel = 'action:shelterGoal';
+    for (let i = 0; i < 25; i++) {
+        const token = f.sync.token(), before = f.bot.entity.position;
+        f.bot.entity.position = before.offset(i % 2 ? -0.1 : 0.1, 0, 0);
+        f.bot.emit('move', before); f.bot.emit('forcedMove');
+        assert(f.sync.decisionChanged(token));
+        assert.equal(f.sync.status('owned:crafting_table'), 'present');
+    }
+    assert.deepEqual(f.stops, []); assert.equal(goal.cancelled, undefined);
+    assert.deepEqual(f.memory.station(), record);
+    f.memory.close(); assert.equal(f.bot.listenerCount('move'), 0); assert.equal(f.bot.listenerCount('forcedMove'), 0);
 });
 
 test('dimensions and separate world IDs cannot reuse each other\'s station observations', t => {

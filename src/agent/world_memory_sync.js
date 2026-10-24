@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { positionOf } from './local_memory.js';
 import { shelterBlueprint, shelterRecord } from './shelter_blueprint.js';
 import { captureInventory } from './live_inventory.js';
+import { observePositionCorrections } from './position_corrections.js';
 
 const dimensionOf = bot => String(bot.game?.dimension ?? 'unknown');
 const keyOf = p => `${p.x},${p.y},${p.z}`;
@@ -30,7 +31,14 @@ export class WorldMemorySync {
         this.listen(this.bot, 'game', () => this.refresh());
         this.listen(this.bot, 'spawn', () => this.refresh());
         this.listen(this.bot, 'move', () => { this.position = positionOf(this.bot.entity?.position); });
-        this.listen(this.bot, 'forcedMove', () => this.relocate());
+        this.unwatchCorrections = observePositionCorrections(this.bot, correction => {
+            if (this.closed) return;
+            if (correction.relocated) this.relocate();
+            else {
+                this.position = correction.position;
+                this.revision++; // Refresh decisions without aborting physical work.
+            }
+        });
         this.listen(this.bot, 'death', () => this.relocate(false));
         this.listen(this.bot, 'chunkColumnLoad', p => this.chunk(p, true));
         this.listen(this.bot, 'chunkColumnUnload', p => this.chunk(p, false));
@@ -322,6 +330,7 @@ export class WorldMemorySync {
                     '(loaded block observation; access unverified).'));
     }
     close() {
+        this.unwatchCorrections?.();
         if (this.closed) return;
         this.flush(); this.closed = true;
         for (const [emitter, event, fn] of this.listeners) emitter.removeListener(event, fn);

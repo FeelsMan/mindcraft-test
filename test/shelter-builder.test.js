@@ -18,6 +18,7 @@ import { safeMiningMovements } from '../src/agent/navigation_policy.js';
 import { captureWorld, worldChanged } from '../src/agent/live_inventory.js';
 import { collectIronFromSide } from '../src/agent/safe_stone.js';
 import { walkSafely } from '../src/agent/navigation_recovery.js';
+import { installMainSupervisor } from '../src/adapters/minecraft/supervisor.js';
 
 function memoryFixture(t, f, root = mkdtempSync(join(tmpdir(), 'mia-shelter-'))) {
     const connections = [];
@@ -330,6 +331,54 @@ test('a damaged saved shelter replaces only the missing block and recalculates o
     assert.equal(f.calls.filter(c => c[0] === 'place').length, 1);
     assert.equal(f.calls.filter(c => c[0] === 'gather').length, 1);
     assert.equal(f.stock.oak_planks, 3);
+});
+
+for (const version of ['1.21.4', '26.3']) test(`a ${version} repair selects the actual interior work position before crossing a closed door`, async () => {
+    const f = shelterWorld(version, { oak_planks: 1 }), plan = built(f);
+    f.bot.shelterSite = { dimension: 'overworld', record: f.record };
+    const position = plan.origin.offset(4, 0, 2);
+    f.set(position, 'air');
+    // The east-side work area is obstructed. The block being repaired is a
+    // wall, but the reachable placement face must be used from inside.
+    for (let z = -1; z <= 5; z++) for (let y = 0; y < 4; y++)
+        f.set(plan.origin.offset(5, y, z), 'stone');
+    f.bot.entity.position = plan.outside.offset(0.5, 0, 0.5);
+    assert(await placeShelterBlock(f.bot, f.record, { item: 'oak_planks', position }, getManagedTravel(f.bot), () => true));
+    assert.equal(f.bot.blockAt(position).name, 'oak_planks');
+    assert.equal(f.calls.filter(c => c[0] === 'place').length, 1);
+    assert(f.calls.some(c => c[0] === 'door'), 'Mia must operate the door herself');
+    assert(shelterDoor(f.bot, f.record).sealed);
+});
+
+for (const version of ['1.21.4', '26.3']) test(`a ${version} east-wall repair gathers supplies and finishes from the live doorway position without help`, async t => {
+    const f = shelterWorld(version), m = memoryFixture(t, f), plan = built(f);
+    m.memory.saveShelter(f.record);
+    f.bot.health = 20; f.bot.food = 20;
+    const supervisor = installMainSupervisor(f.agent);
+    for (let y = 0; y < 3; y++) for (let z = 0; z < 5; z++) f.set(plan.origin.offset(4, y, z), 'air');
+    f.bot.entity.position = plan.door.offset(0.49988236803626, 0, 0.5125);
+    const collect = f.api.collect;
+    f.api.navigation = () => getManagedTravel(f.bot);
+    f.api.collect = async (...args) => {
+        // Run the actual skill's shelter-exit hook before supplying a receipt.
+        await prepareShelterTravel(f.bot, plan.outside, getManagedTravel(f.bot));
+        for (let i = 0; i < 20; i++) {
+            const before = f.bot.entity.position;
+            f.bot.entity.position = before.offset(i % 2 ? -0.05 : 0.05, 0, 0);
+            f.bot.emit('move', before); f.bot.emit('forcedMove');
+            assert(!f.bot.interrupt_code, 'Local corrections must not restart gathering');
+        }
+        await collect(...args);
+    };
+    const goal = await start(f);
+    assert.match(await goal.done, /Shelter complete/);
+    assert.equal(f.calls.filter(c => c[0] === 'place').length, 15);
+    assert(inspectShelter(f.bot, f.record).structureComplete);
+    assert(shelterDoor(f.bot, f.record).sealed);
+    assert.equal(f.calls.filter(c => c[0] === 'dig').length, 0);
+    assert.equal(m.memory.pendingGoal().status, 'complete');
+    assert.equal(supervisor.view().goal.status, 'complete');
+    assert(!supervisor.transitions.some(event => event.status === 'paused'));
 });
 
 test('the actual skill travel hook exits and returns through the owned door without mining the shelter', async () => {

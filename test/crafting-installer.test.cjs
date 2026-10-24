@@ -5,11 +5,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const repository = path.resolve(__dirname, '..');
+const repairInstaller = path.join(repository, 'scripts/mia-shelter-repair-update.cjs');
 const namedInstaller = path.join(repository, 'scripts/mia-main-supervisor-update.cjs');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 // --test must validate the file actually launched by the user, even when an
 // older installer remains elsewhere in their Mindcraft folder.
-const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(namedInstaller) ? namedInstaller :
+const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(repairInstaller) ? repairInstaller : fs.existsSync(namedInstaller) ? namedInstaller :
     fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-main-supervisor-update.cjs'));
 const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
@@ -71,6 +72,25 @@ test('the standalone installer embeds the current source, tests and documentatio
 
 const supervisorBaseline = gitFile('7cd350fbb7fd1889cb9c717d25b330ad74c68eba', 'package.json') ?
     '7cd350fbb7fd1889cb9c717d25b330ad74c68eba' : 'f60882d'; // Identical baseline tree in the local test checkout.
+const repairBaseline = gitFile('2633247ae8515d35cc08308eefce7728ae29a742', 'package.json') ?
+    '2633247ae8515d35cc08308eefce7728ae29a742' : 'ca1ab9c'; // Same Main Supervisor source tree.
+test('the installed Main Supervisor build upgrades shelter repairs and restores exact code without changing saved state', {
+    skip: !gitFile(repairBaseline, 'package.json')
+}, () => {
+    const f = fixture(repairBaseline);
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/position_corrections.js'), 'utf8'), /observePositionCorrections/);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/shelter_building.js'), 'utf8'), /walkToShelterWork/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
 test('the latest published navigation build upgrades to Main Supervisor v1 and restores exact source without changing memory', {
     skip: !gitFile(supervisorBaseline, 'package.json')
 }, () => {

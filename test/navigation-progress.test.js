@@ -135,13 +135,43 @@ for (const event of ['death', 'end', 'forcedMove', 'dimension', 'combat']) test(
     f.timers.push(setTimeout(() => {
         if (event === 'dimension') f.bot.game.dimension = 'the_nether';
         else if (event === 'combat') f.bot.interrupt_code = true;
-        else f.bot.emit(event);
+        else {
+            if (event === 'forcedMove') {
+                const before = f.bot.entity.position;
+                f.bot.entity.position = at(20);
+                f.bot.emit('move', before); // Native reply precedes forcedMove.
+            }
+            f.bot.emit(event);
+        }
     }, 5));
     const result = await gotoWithProgress(f.bot, new pf.goals.GoalBlock(10, 64, 0), f.policy(), f.opts);
     assert.equal(result.success, false);
     assert.equal(result.reason, ({ end: 'disconnected', forcedMove: 'world_changed', dimension: 'dimension_changed', combat: 'interrupted' })[event] || event);
     assert.equal(f.bot.managedGoal, goal); assert.equal(goal.target, 3); assert.equal(goal.cancelled, undefined);
     assert.equal(f.bot.pathfinder.goal, null); clean(f.bot);
+});
+
+test('small native movement corrections retain the route and cannot replenish its no-progress budget', async t => {
+    const f = fixture(t); let tick = 0;
+    f.timers.push(setInterval(() => {
+        const before = f.bot.entity.position;
+        f.bot.entity.position = new Vec3(0.5 + (++tick % 2) * 0.1, 64, 0.5);
+        f.bot.emit('move', before); f.bot.emit('forcedMove');
+    }, 5));
+    const result = await gotoWithProgress(f.bot, new pf.goals.GoalBlock(10, 64, 0), f.policy(), f.opts);
+    assert.equal(result.reason, 'no_progress'); assert.equal(result.success, false);
+    assert(tick > 1); clean(f.bot); assert.equal(f.bot.listenerCount('move'), 0);
+});
+
+test('a route keeps watching for a real relocation after a harmless correction', async t => {
+    const f = fixture(t);
+    f.timers.push(setTimeout(() => {
+        f.bot.emit('move', f.bot.entity.position); f.bot.emit('forcedMove');
+        const before = f.bot.entity.position;
+        f.bot.entity.position = at(30); f.bot.emit('move', before); f.bot.emit('forcedMove');
+    }, 5));
+    const result = await gotoWithProgress(f.bot, new pf.goals.GoalBlock(10, 64, 0), f.policy(), f.opts);
+    assert.equal(result.reason, 'world_changed'); clean(f.bot); assert.equal(f.bot.listenerCount('move'), 0);
 });
 
 test('an old route cannot clear a replacement action goal or its controls', async t => {
