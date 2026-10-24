@@ -49,6 +49,16 @@ tracked in [PR #2](https://github.com/FeelsMan/mindcraft-test/pull/2), targeting
 verified actual retreat at health 16 with a hostile 20 blocks away, and shared
 the same configurable danger assessment with feeding throughout equip/use.
 The installed runtime source matches all 66 installer files; restart is needed.
+
+Publication completed on October 24, 2026: [PR #2](https://github.com/FeelsMan/mindcraft-test/pull/2)
+merged into `develop` at `ee746b70fa9d1831c7bfe631aac57f22bab271c7`.
+The tested head is `629d0dda3cc009f393dafcd09b6cd9afd9b82f81`.
+[GitHub workflow 40142116428](https://github.com/FeelsMan/mindcraft-test/actions/runs/40142116428)
+passed all four jobs: **416/416** Linux regressions, **201/201** Windows
+interactions, **61/61** Windows memory checks and **18/18** installer checks,
+all with zero skipped tests. The final documentation record changes no runtime
+or installer bytes. Mia remains stopped; start with
+`node main.js --profiles .\mia-qwen.json` when ready for the live checks below.
 No live Survival acceptance is claimed. The active repair → hostile
 interruption → same-site automatic completion scenario and cancellation across
 restart remain outstanding live checks. Mia must restart to load this code.
