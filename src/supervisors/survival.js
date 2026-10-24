@@ -105,9 +105,10 @@ export class SurvivalSupervisor {
         // wall or an approaching threat must not silently become safe cover.
         if (this.refuge && !this.adapter.refugeValid?.(this.refuge)) this.refuge = null;
         const protectedRefuge = this.refuge && ['shelter', 'cover'].includes(this.refuge.kind);
+        const unsafeEnvironment = !clear || a.danger && a.nearest <= this.config.threatRadius;
         let action;
-        if (!clear && !protectedRefuge && this.retreats < this.config.maxRetreats) action = 'retreat';
-        else if (needsFood && (clear || protectedRefuge) && this.meals < this.config.maxMeals) {
+        if (unsafeEnvironment && !protectedRefuge && this.retreats < this.config.maxRetreats) action = 'retreat';
+        else if (needsFood && (!unsafeEnvironment || protectedRefuge) && this.meals < this.config.maxMeals) {
             if (!s.foodAvailable) {
                 this.setStatus('blocked', 'No suitable food in live inventory; food gathering is unavailable during recovery.');
                 return;
@@ -115,8 +116,8 @@ export class SurvivalSupervisor {
             action = 'eat';
         }
         if (!action) {
-            this.setStatus(!clear && !protectedRefuge ? 'blocked' : 'recovering',
-                !clear && !protectedRefuge ? 'No verified reachable refuge; retreat attempts exhausted.' :
+            this.setStatus(unsafeEnvironment && !protectedRefuge ? 'blocked' : 'recovering',
+                unsafeEnvironment && !protectedRefuge ? 'No verified reachable refuge; retreat attempts exhausted.' :
                 needsFood && this.meals >= this.config.maxMeals ? 'Food attempt budget exhausted; awaiting improved conditions.' :
                 'Holding recovery until threats, recent damage, health and hunger are acceptable.');
             return;

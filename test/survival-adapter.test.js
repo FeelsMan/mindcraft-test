@@ -7,6 +7,10 @@ import { shelterDoor } from '../src/agent/shelter_building.js';
 import { shelterWorld } from './helpers/shelter-world.js';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(check) {
+    const end = Date.now() + 1000;
+    while (!check()) { assert(Date.now() < end, 'Expected consumption did not begin'); await sleep(1); }
+}
 function fixture(version = '26.3', stock = {}) {
     const f = shelterWorld(version, stock);
     f.bot.health = 12; f.bot.food = 8;
@@ -77,13 +81,14 @@ test('food failures, unavailable inventory, unsafe foods and food disappearing d
     assert.equal(lost.adapter.observe().available, false);
 });
 
-test('consumption cancellation deactivates use and awaits the physical promise before returning', async () => {
+test('consumption cancellation deactivates use and awaits the physical promise before returning', async t => {
     const f = fixture('26.3', { bread: 1 });
     let settle, consuming = false, valid = true, returned = false, deactivated = 0;
     f.bot.consume = () => { consuming = true; return new Promise(resolve => { settle = resolve; }); };
+    t.after(() => settle?.());
     f.bot.deactivateItem = () => { deactivated++; };
     const eating = f.adapter.eat(() => valid).then(value => { returned = true; return value; });
-    while (!consuming) await sleep(1);
+    await until(() => consuming);
     valid = false; await sleep(5);
     assert(deactivated > 0); assert.equal(returned, false, 'Pending consumption must retain ownership');
     f.stock.bread--; f.bot.food += 5; settle();
@@ -100,6 +105,37 @@ test('dimension change or death during consumption cannot become verified after 
         };
         assert.equal((await f.adapter.eat(() => true)).verified, false, change);
     }
+});
+
+test('a newly dangerous twenty-block threat during equip prevents unprotected consumption', async () => {
+    const f = fixture('26.3', { bread: 1 });
+    f.bot.health = 20;
+    f.bot.equip = async () => {
+        f.bot.health = 16;
+        f.bot.entities.skeleton = { id: 1, name: 'skeleton', position: f.bot.entity.position.offset(20, 0, 0) };
+    };
+    f.bot.consume = () => assert.fail('Food must not be used after the risk envelope becomes unsafe');
+    assert.equal((await f.adapter.eat(() => true)).verified, false);
+    assert.equal(f.stock.bread, 1);
+});
+
+test('food use rechecks configurable coordinator danger during a pending consume promise', async t => {
+    const f = fixture('26.3', { bread: 1 });
+    const supervisor = installSurvivalSupervisor(f.agent, { clearRadius: 18, threatRadius: 28 });
+    let settle, consuming = false, deactivated = 0;
+    f.bot.health = 20;
+    f.bot.consume = () => { consuming = true; return new Promise(resolve => { settle = resolve; }); };
+    t.after(() => settle?.());
+    f.bot.deactivateItem = () => { deactivated++; };
+    const eating = f.adapter.eat(() => true);
+    await until(() => consuming);
+    f.bot.health = 16;
+    f.bot.entities.skeleton = { id: 1, name: 'skeleton', position: f.bot.entity.position.offset(26, 0, 0) };
+    assert.equal(supervisor.assess(f.adapter.observe()).danger, true);
+    await sleep(5);
+    assert(deactivated > 0, 'Use must stop when the configured danger envelope changes');
+    f.stock.bread--; f.bot.food += 5; settle();
+    assert.equal((await eating).verified, false);
 });
 
 for (const version of ['1.21.4', '26.3']) test(`native ${version} retreat proves the shelter route, operates its owned door and rechecks the sealed shell`, async () => {

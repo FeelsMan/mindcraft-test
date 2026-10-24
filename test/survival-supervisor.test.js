@@ -97,6 +97,28 @@ test('an unchanged threat that triggered early intervention cannot repeatedly re
     assert.equal(f.supervisor.active, false, 'The same state must not immediately trigger another intervention');
 });
 
+test('early danger at twenty blocks dispatches retreat and keeps escaping until protected or attempts are exhausted', async () => {
+    const f = fixture({ maxRetreats: 2 });
+    Object.assign(f.state, { health: 16, threats: [hostile(20)] });
+    f.refuge.kind = 'escape';
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat'], 'Recognizing early danger must dispatch a physical retreat');
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'retreat'], 'An exposed escape point does not end the dangerous threat condition');
+    f.state.hunger = 10; f.state.foodAvailable = true;
+    for (let i = 0; i < 3; i++) await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'retreat'], 'An exhausted escape budget cannot authorize eating while the same danger remains');
+    assert.equal(f.supervisor.view().retreatAttempts, 2);
+    assert.equal(f.supervisor.view().status, 'blocked');
+    assert.match(f.supervisor.view().reason, /No verified reachable refuge/);
+    assert.equal(f.supervisor.active, true);
+    f.state.threats = [];
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'retreat', 'eat']);
+    await tick(f); f.advance(100); await tick(f);
+    assert.equal(f.supervisor.active, false);
+});
+
 test('low health without visible hostiles holds recovery and eats when fresh carried food is available', async () => {
     const f = fixture();
     Object.assign(f.state, { health: 10, hunger: 10, foodAvailable: true });

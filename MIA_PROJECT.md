@@ -32,10 +32,10 @@ Defaults and limits are documented in `docs/mia-survival.md`; they are initial
 tested implementation choices, not established live tuning.
 
 Fresh local validation on Node **22.23.2**: `npm run test:goals` in the isolated
-full-history checkout passed **413/413**, with no skipped tests, including the
+full-history checkout passed **416/416**, with no skipped tests, including the
 installer upgrade/rollback cases. The applicable Windows interaction command
-passed **198/198** and the Windows memory command passed **61/61**. Focused
-Survival coverage passed **39/39**, including native 1.21.4/26.3 controlled
+passed **201/201** and the Windows memory command passed **61/61**. Focused
+Survival coverage passed **42/42**, including native 1.21.4/26.3 controlled
 same-site repair replays, scoped/intact-door refuge checks, failed and verified
 consumption, bounded attempts, unknown observations, cancellation races and
 recovery release hysteresis. An initial sandbox run hit a temporary-file rename
@@ -43,8 +43,12 @@ restriction in a memory fixture; the unrestricted isolated reruns passed.
 The cumulative installer embeds **66** current files and retains compatibility
 hashes across the **12** historical baselines audited. Private-state fixtures
 include JSON/SQLite memory, WAL/SHM sidecars, configuration and profiles.
-Dependencies, vendor packages and lockfile were unchanged. Publication and CI
-results are pending at this record; no remote merge is yet claimed.
+Dependencies, vendor packages and lockfile were unchanged. Publication is
+tracked in [PR #2](https://github.com/FeelsMan/mindcraft-test/pull/2), targeting
+`develop`; its checks identify the tested source revision. Final review also
+verified actual retreat at health 16 with a hostile 20 blocks away, and shared
+the same configurable danger assessment with feeding throughout equip/use.
+The installed runtime source matches all 66 installer files; restart is needed.
 No live Survival acceptance is claimed. The active repair → hostile
 interruption → same-site automatic completion scenario and cancellation across
 restart remain outstanding live checks. Mia must restart to load this code.

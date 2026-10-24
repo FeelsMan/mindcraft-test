@@ -1,6 +1,6 @@
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
-import { SurvivalSupervisor } from '../../supervisors/survival.js';
+import { SurvivalSupervisor, survivalDefaults } from '../../supervisors/survival.js';
 import { sameScope } from '../../core/worldState.js';
 import { inspectShelter, prepareShelterTravel } from '../../agent/shelter_building.js';
 import { shelterRecord } from '../../agent/shelter_blueprint.js';
@@ -23,12 +23,14 @@ const fullBlock = block => safeSolid(block) && block.shapes?.some(shape =>
     shape.length === 6 && shape.every((value, i) => value === (i < 3 ? 0 : 1)));
 
 export class MinecraftSurvivalAdapter {
-    constructor(agent, { routeMs = 18000, consumeMs = 4000, verifyMs = 1200, pollMs = 50 } = {}) {
+    constructor(agent, options = {}) {
+        const { routeMs = 18000, consumeMs = 4000, verifyMs = 1200, pollMs = 50 } = options;
         this.agent = agent;
         this.routeMs = routeMs;
         this.consumeMs = consumeMs;
         this.verifyMs = verifyMs;
         this.pollMs = pollMs;
+        this.assessor = { config: { ...survivalDefaults, ...options }, clock: options.clock || Date.now };
     }
 
     scope() {
@@ -237,8 +239,15 @@ export class MinecraftSurvivalAdapter {
         const active = () => this.active(valid, scope, deathEpoch), selected = this.food()[0];
         const safeToEat = () => {
             if (!active()) return false;
-            const threats = this.threats(), refuge = this.agent.survival_supervisor?.refuge;
-            return threats && (threats.every(t => t.distance >= 8) ||
+            const supervisor = this.agent.survival_supervisor, state = this.observe();
+            // Share the coordinator's exact live risk assessment, including
+            // configurable ranges and recent damage, throughout equip/use.
+            const assessment = supervisor?.assess ? supervisor.assess(state) :
+                SurvivalSupervisor.prototype.assess.call(this.assessor, state);
+            const config = supervisor?.config || this.assessor.config, refuge = supervisor?.refuge;
+            const clear = !assessment.recent && assessment.nearest > config.clearRadius;
+            const unsafe = !clear || assessment.danger && assessment.nearest <= config.threatRadius;
+            return assessment.known && (!unsafe ||
                 ['shelter', 'cover'].includes(refuge?.kind) && this.refugeValid(refuge));
         };
         if (!active()) return { verified: false, reason: 'Food action interrupted or live conditions unavailable.' };

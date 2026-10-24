@@ -69,8 +69,8 @@ hungry with carried food, missing food, blocked/broken shelter, dropped loot
 during danger, and cancellation surviving restart. Keep the current world and
 saved home. No live pass is established by this document.
 
-Local checks on Node 22.23.2: full suite 413/413, Windows interactions 198/198,
-Windows memory 61/61, focused Survival 39/39, with no skips in those successful
+Local checks on Node 22.23.2: full suite 416/416, Windows interactions 201/201,
+Windows memory 61/61, focused Survival 42/42, with no skips in those successful
 runs. The full-history suite includes installer upgrades, private-state
 preservation and exact rollback. A sandbox temporary-file rename restriction
 required unrestricted isolated memory/full-suite reruns.
