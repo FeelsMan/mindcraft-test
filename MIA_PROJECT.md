@@ -37,7 +37,15 @@ Fresh validation on Node **22.23.2**: **425/425** full regressions passed with
 zero skips, including **49** focused Survival cases, the installed Survival v1
 upgrade, exact rollback/private-state preservation and successive installer
 rebuilds. The final cumulative installer verifies all **66** embedded files.
-GitHub/Windows checks and publication are pending. Live acceptance remains
+GitHub [workflow 40144250069](https://github.com/FeelsMan/mindcraft-test/actions/runs/40144250069)
+passed **425/425** Linux regressions, **208/208** Windows interactions,
+**61/61** Windows memory checks and **19/19** installer checks, all without skips.
+The tested source is `fd17b2e3a624a7e6a667d158f70f503d42d065f7`, published in
+[PR #3](https://github.com/FeelsMan/mindcraft-test/pull/3). Automatic approval
+review rejected merging into `develop`, saying the current request authorized
+review rather than a merge, despite Joe's recorded standing authorization.
+Do not claim this correction is merged or installed on Windows. The following
+documentation update changes no runtime/installer bytes. Live acceptance remains
 open: supply edible food, observe verified consumption, clear the threat, and
 confirm the same saved repair resumes after sustained acceptable conditions.
 Do not reset the house, map or memory to work around blocked recovery.
