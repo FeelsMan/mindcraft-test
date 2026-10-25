@@ -147,6 +147,58 @@ test('hunger without live suitable food is blocked without attempting consumptio
     assert.equal(f.supervisor.active, false);
 });
 
+test('food delivered after the retreat deadline is consumed in verified cover and permits recovery', async () => {
+    const f = fixture({ budgetMs: 10 });
+    Object.assign(f.state, { health: 16, hunger: 8, threats: [hostile()] });
+    await tick(f);
+    await tick(f);
+    assert.match(f.supervisor.view().reason, /No suitable food/);
+    f.advance(11);
+    await tick(f);
+    assert.equal(f.supervisor.active, true);
+    f.state.foodAvailable = true;
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'eat']);
+    assert.equal(f.state.hunger, 20);
+    assert.equal(f.supervisor.active, true, 'A meal does not remove the nearby threat');
+    f.state.threats = [];
+    await tick(f); f.advance(100); await tick(f);
+    assert.equal(f.supervisor.active, false);
+});
+
+test('a cleared threat permits carried food after expired movement and failed refuge attempts', async () => {
+    const f = fixture({ budgetMs: 10, maxRetreats: 1 });
+    Object.assign(f.state, { health: 16, hunger: 8, foodAvailable: true, threats: [hostile()] });
+    f.adapter.retreat = async () => { f.calls.push('retreat'); return { verified: false }; };
+    await tick(f); f.advance(11);
+    for (let i = 0; i < 3; i++) await tick(f);
+    assert.deepEqual(f.calls, ['retreat'], 'Exposed danger must not authorize eating or renewed escape attempts');
+    f.state.threats = [];
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'eat']);
+    await tick(f); f.advance(100); await tick(f);
+    assert.equal(f.supervisor.active, false);
+});
+
+test('late food availability does not renew exhausted meal attempts or authorize an invalidated refuge', async () => {
+    const f = fixture({ budgetMs: 10, maxMeals: 1, maxRetreats: 1 });
+    Object.assign(f.state, { health: 16, hunger: 8, threats: [hostile()] });
+    await tick(f); f.advance(11);
+    f.state.foodAvailable = true;
+    f.adapter.refugeValid = () => false;
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat'], 'Recheck the refuge even after the movement deadline');
+    f.state.threats = [];
+    f.adapter.eat = async () => { f.calls.push('eat'); return { verified: false }; };
+    await tick(f);
+    f.state.foodAvailable = false; await tick(f);
+    f.state.foodAvailable = true;
+    for (let i = 0; i < 4; i++) await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'eat']);
+    assert.equal(f.supervisor.view().foodAttempts, 1);
+    assert.equal(f.supervisor.active, true);
+});
+
 test('unverified or thrown food attempts are bounded and never release a hungry task', async () => {
     for (const throwing of [false, true]) {
         const f = fixture({ maxMeals: 2 });
@@ -292,10 +344,43 @@ function ownedFixture() {
     survival.adapter.observe = () => ({ ...survival.state,
         health: f.bot.health, hunger: f.bot.food, scope: main.observe().scope });
     f.agent.survival_supervisor = survival.supervisor;
-    survival.adapter.run = (token, action) => f.agent.actions.runAction('mode:survival', action,
-        { timeout: 0, valid: () => survival.supervisor.isCurrent(token) });
+    survival.adapter.run = (token, action, valid = () => true) => f.agent.actions.runAction('mode:survival', action,
+        { timeout: 0, valid: () => survival.supervisor.isCurrent(token) && valid() });
     return { ...f, main, survival };
 }
+
+test('blocked hunger interrupts an existing physical action once even without a meal to dispatch', async () => {
+    const f = ownedFixture();
+    const old = f.agent.actions.runAction('action:followPlayer', async () => {
+        await until(() => f.bot.interrupt_code, 'Blocked recovery left existing movement running');
+    }, { timeout: 0 });
+    await until(() => f.agent.actions.executing);
+    f.bot.food = 8;
+    await tick(f.survival); await old;
+    assert.equal(f.agent.actions.executing, false);
+    assert.equal(f.main.view().owner, null);
+    assert.equal(f.survival.supervisor.active, true);
+    assert.match(f.survival.supervisor.view().reason, /No suitable food/);
+    const lastAction = f.agent.actions.last_action_time;
+    for (let i = 0; i < 5; i++) await tick(f.survival);
+    assert.equal(f.agent.actions.last_action_time, lastAction, 'Holding must not acquire a new physical action on every tick');
+    assert.deepEqual(f.survival.calls, []);
+});
+
+test('cancelling a queued no-food hold prevents it from acquiring the action slot later', async () => {
+    const f = ownedFixture(), gate = deferred();
+    const old = f.agent.actions.runAction('action:followPlayer', () => gate.promise, { timeout: 0 });
+    await until(() => f.agent.actions.executing);
+    f.bot.food = 8;
+    f.survival.supervisor.update();
+    await until(() => f.bot.interrupt_code, 'Recovery hold never requested the old action to stop');
+    f.survival.supervisor.cancel(); gate.resolve();
+    await old; await f.survival.supervisor.flight;
+    assert.equal(f.survival.supervisor.active, false);
+    assert.equal(f.survival.supervisor.view().status, 'cancelled');
+    assert.equal(f.main.view().owner, null);
+    assert.deepEqual(f.survival.calls, []);
+});
 
 test('a survival request queued behind a slow action stop cannot acquire ownership after cancellation', async () => {
     const f = ownedFixture(), gate = deferred();

@@ -49,7 +49,6 @@ export class SurvivalSupervisor {
     isCurrent(token) {
         const s = this.adapter.observe();
         return this.active && token === this.epoch && this.assess(s).known && s.health > 0 &&
-            this.clock() - this.startedAt < this.config.budgetMs &&
             sameScope(this.scope, s.scope);
     }
 
@@ -58,6 +57,33 @@ export class SurvivalSupervisor {
         this.active = false;
         this.suppressed = this.signature(this.adapter.observe());
         this.setStatus('cancelled', reason);
+    }
+
+    hold(status, reason) {
+        this.setStatus(status, reason);
+        // Blocking new requests is not enough: stop any action that was
+        // already moving when recovery began, even if no food is available.
+        if (!this.held && !this.flight) this.dispatch(null);
+    }
+
+    dispatch(action) {
+        const token = this.epoch;
+        const valid = () => this.isCurrent(token) &&
+            (action !== 'retreat' || this.clock() - this.startedAt < this.config.budgetMs);
+        const flight = Promise.resolve().then(() => this.adapter.run(token, async () => {
+            if (!valid()) return;
+            this.held = true;
+            if (!action) return; // ActionManager has settled the previous owner.
+            if (action === 'eat') this.meals++; else this.retreats++;
+            const outcome = await this.adapter[action](valid);
+            if (!valid()) return;
+            if (action === 'retreat' && outcome?.verified) this.refuge = outcome.destination || null;
+            this.setStatus(outcome?.verified ? 'recovering' : 'blocked', outcome?.reason ||
+                (outcome?.verified ? 'Survival action verified; checking fresh conditions.' : 'Survival action was not verified.'));
+        }, valid)).catch(error => {
+            if (valid()) this.setStatus('blocked', `Survival action failed: ${error.message}`);
+        }).finally(() => { if (this.flight === flight) this.flight = null; });
+        this.flight = flight;
     }
 
     update() {
@@ -84,6 +110,7 @@ export class SurvivalSupervisor {
             this.scope = { ...s.scope };
             this.startedAt = now; this.calmSince = null;
             this.retreats = 0; this.meals = 0; this.refuge = null;
+            this.held = false;
             this.setStatus('recovering', a.danger ? 'Danger detected; preserving the interrupted task.' : 'Hunger requires verified food.');
         }
         const needsFood = s.hunger < 20 && (a.hungry || s.health < 18);
@@ -97,46 +124,39 @@ export class SurvivalSupervisor {
             }
         } else this.calmSince = null;
         if (this.flight) return;
-        if (now - this.startedAt >= this.config.budgetMs) {
-            this.setStatus('blocked', 'Recovery budget exhausted; task held until observed conditions improve.');
-            return;
-        }
         // A verified refuge is rechecked by the adapter on each tick; a broken
         // wall or an approaching threat must not silently become safe cover.
         if (this.refuge && !this.adapter.refugeValid?.(this.refuge)) this.refuge = null;
         const protectedRefuge = this.refuge && ['shelter', 'cover'].includes(this.refuge.kind);
         const unsafeEnvironment = !clear || a.danger && a.nearest <= this.config.threatRadius;
         let action;
-        if (unsafeEnvironment && !protectedRefuge && this.retreats < this.config.maxRetreats) action = 'retreat';
-        else if (needsFood && (!unsafeEnvironment || protectedRefuge) && this.meals < this.config.maxMeals) {
-            if (!s.foodAvailable) {
-                this.setStatus('blocked', 'No suitable food in live inventory; food gathering is unavailable during recovery.');
+        if (unsafeEnvironment && !protectedRefuge && this.retreats < this.config.maxRetreats) {
+            if (now - this.startedAt >= this.config.budgetMs) {
+                this.hold('blocked', 'Recovery budget exhausted; task held until observed conditions improve.');
                 return;
             }
+            action = 'retreat';
+        }
+        else if (needsFood && (!unsafeEnvironment || protectedRefuge) && this.meals < this.config.maxMeals) {
+            if (!s.foodAvailable) {
+                this.hold('blocked', 'No suitable food in live inventory; supply edible food. Recovery will recheck it, including after the retreat deadline.');
+                return;
+            }
+            // Waiting for supplies or a threat to clear must not permanently
+            // disable eating. Each meal is bounded by the adapter and the
+            // intervention's meal count; movement budgets are not renewed.
             action = 'eat';
         }
         if (!action) {
-            this.setStatus(unsafeEnvironment && !protectedRefuge ? 'blocked' : 'recovering',
+            this.hold(unsafeEnvironment && !protectedRefuge ? 'blocked' : 'recovering',
                 unsafeEnvironment && !protectedRefuge ? 'No verified reachable refuge; retreat attempts exhausted.' :
                 needsFood && this.meals >= this.config.maxMeals ? 'Food attempt budget exhausted; awaiting improved conditions.' :
                 'Holding recovery until threats, recent damage, health and hunger are acceptable.');
             return;
         }
-        const token = this.epoch;
         this.setStatus(action === 'eat' ? 'eating' : 'retreating', action === 'eat' ?
             'Eating carried food and checking live consumption.' : 'Seeking verified shelter, cover or a safer supported position.');
-        const flight = Promise.resolve().then(() => this.adapter.run(token, async () => {
-            if (!this.isCurrent(token)) return;
-            if (action === 'eat') this.meals++; else this.retreats++;
-            const outcome = await this.adapter[action](() => this.isCurrent(token));
-            if (!this.isCurrent(token)) return;
-            if (action === 'retreat' && outcome?.verified) this.refuge = outcome.destination || null;
-            this.setStatus(outcome?.verified ? 'recovering' : 'blocked', outcome?.reason ||
-                (outcome?.verified ? 'Survival action verified; checking fresh conditions.' : 'Survival action was not verified.'));
-        })).catch(error => {
-            if (this.isCurrent(token)) this.setStatus('blocked', `Survival action failed: ${error.message}`);
-        }).finally(() => { if (this.flight === flight) this.flight = null; });
-        this.flight = flight;
+        this.dispatch(action);
     }
 
     view() {

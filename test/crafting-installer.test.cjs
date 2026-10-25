@@ -74,6 +74,23 @@ test('the standalone installer embeds the current source, tests and documentatio
         assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
 });
 
+test('the installed Survival v1 upgrades recovery and restores exact bytes with private state retained', {
+    skip: !gitFile('03e8ccc179030100a544cd3cb09de7fab82caa54', 'package.json')
+}, () => {
+    const f = fixture('03e8ccc179030100a544cd3cb09de7fab82caa54');
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/supervisors/survival.js'), 'utf8'), /hold\(status, reason\)/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
 test('the published shelter repair upgrades to Survival v1 and rolls back exact bytes while preserving private state', {
     skip: !gitFile('e81fcab25d0f31fa0e1527b9a55ee4a7af2f8cec', 'package.json')
 }, () => {
