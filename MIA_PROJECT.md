@@ -40,15 +40,28 @@ rebuilds. The final cumulative installer verifies all **66** embedded files.
 GitHub [workflow 40144250069](https://github.com/FeelsMan/mindcraft-test/actions/runs/40144250069)
 passed **425/425** Linux regressions, **208/208** Windows interactions,
 **61/61** Windows memory checks and **19/19** installer checks, all without skips.
-The tested source is `fd17b2e3a624a7e6a667d158f70f503d42d065f7`, published in
-[PR #3](https://github.com/FeelsMan/mindcraft-test/pull/3). Automatic approval
-review rejected merging into `develop`, saying the current request authorized
-review rather than a merge, despite Joe's recorded standing authorization.
-Do not claim this correction is merged or installed on Windows. The following
-documentation update changes no runtime/installer bytes. Live acceptance remains
-open: supply edible food, observe verified consumption, clear the threat, and
-confirm the same saved repair resumes after sustained acceptable conditions.
-Do not reset the house, map or memory to work around blocked recovery.
+The tested runtime source is `fd17b2e3a624a7e6a667d158f70f503d42d065f7`.
+[PR #3](https://github.com/FeelsMan/mindcraft-test/pull/3) was merged into
+`develop` at `009ad2c1548cecc8549b47740fe9ce31b4800ff2` on October 24, 2026,
+after Joe explicitly approved the merge. Its final head,
+`4e14ed3c4c741fd865e30762b8869a69193ebde4`, differs from the tested runtime
+source only in this reference; all four jobs in
+[workflow 40144606098](https://github.com/FeelsMan/mindcraft-test/actions/runs/40144606098)
+also passed on that final head. The earlier automatic approval block is resolved.
+The merge does not install the correction on Joe's Windows PC. Stop Mia,
+apply the recovery installer and verify all 66 files before restarting, unless
+that exact correction is already installed. Profiles and memories remain preserved.
+
+Live acceptance remains open. First reproduce hungry/no-food recovery, request
+`!shelterGoal` with a few missing wall blocks and adequate planks, wait at least
+95 seconds from recovery entry, then supply bread directly to her inventory.
+After nearby threats are cleared, confirm verified consumption, acceptable
+health/hunger, sustained calm, and automatic completion of the same saved repair
+without another goal command. Query `!supervisor` before and after recovery.
+Then separately test active repair interrupted by one zombie, followed by
+automatic same-site resumption and released ownership. Keep the door and escape
+route usable; do not reset the house, map or memory. These are proposed live
+tests, not reported passes.
 
 ### Previous Survival v1 implementation — October 24, 2026
 
