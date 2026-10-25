@@ -17,6 +17,7 @@ const argv = yargs(args)
     .option('load_memory', {
         alias: 'l',
         type: 'boolean',
+        default: true,
         description: 'load agent memory from file on startup'
     })
     .option('init_message', {

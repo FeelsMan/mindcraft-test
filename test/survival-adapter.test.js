@@ -282,3 +282,29 @@ test('installation disables independent automatic eating before any survival tic
     assert.equal(installSurvivalSupervisor(f.agent), f.agent.survival_supervisor);
     assert.equal(disabled, 1);
 });
+
+for (const version of ['1.21.4', '26.3']) test(`native ${version} new damage in sealed shelter cancels pending food without releasing its physical owner early`, async t => {
+    const f = fixture(version, { bread: 1 }), plan = built(f);
+    f.bot.lastDamageTime = Date.now() - 100;
+    f.bot.lastDamageTaken = 4;
+    f.bot.entities.zombie = { id: 1, name: 'zombie', position: plan.outside.offset(0.5, 0, 0.5) };
+    const supervisor = installSurvivalSupervisor(f.agent, { verifyMs: 3, pollMs: 1 });
+    supervisor.update(); await supervisor.flight;
+    assert.equal(supervisor.refuge?.kind, 'shelter');
+    let consuming = false, settle, deactivated = 0;
+    f.bot.consume = () => { consuming = true; return new Promise(resolve => { settle = resolve; }); };
+    f.bot.deactivateItem = () => { deactivated++; };
+    t.after(() => settle?.());
+    supervisor.update(); const eating = supervisor.flight;
+    await until(() => consuming);
+    f.bot.lastDamageTime = Date.now(); f.bot.health = 8;
+    supervisor.update();
+    assert.equal(supervisor.refuge, null, 'Fresh damage invalidates refuge even while food is pending');
+    await until(() => deactivated > 0);
+    assert.equal(f.agent.actions.currentActionLabel, 'mode:survival');
+    assert.equal(supervisor.flight, eating);
+    f.stock.bread--; f.bot.food += 5; settle(); await eating;
+    assert.equal(supervisor.status, 'blocked', 'Delayed food events after damage cannot claim verified recovery');
+    assert.equal(supervisor.retreats, 1);
+    assert.equal(f.agent.actions.executing, false);
+});

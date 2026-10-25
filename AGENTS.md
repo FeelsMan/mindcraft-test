@@ -22,6 +22,7 @@ This repository develops M.I.A. (Memory, Identity & Agency), a local agent with 
 - Building/access: `src/agent/shelter_blueprint.js`, `src/agent/shelter_building.js`.
 - Navigation/observations: `src/agent/navigation_*.js`, `src/agent/position_corrections.js`, `src/agent/live_inventory.js`, `src/agent/world_memory_sync.js`.
 - Persistence: `src/agent/local_memory.js`, `src/agent/memory_runtime.js`.
+- Startup memory default: `settings.js`, `src/mindcraft/mindcraft.js`, `src/process/agent_process.js`, `src/process/init_agent.js`. Installer users enable only the existing settings boolean with `scripts/configure-memory-default.cjs --enable`; never replace their settings wholesale.
 - Relevant docs are in `docs/mia*.md`; regressions are in `test/`; CI is `.github/workflows/managed-goals.yml`.
 
 The tree in `MIA_PROJECT.md` is the target architecture. Main Supervisor/world state/bridge and Survival Supervisor v1 exist; the other specialized supervisor modules, Personality Supervisor and Memory Manager abstraction remain planned. Survival uses `src/supervisors/survival.js` and `src/adapters/minecraft/survival.js` through the existing tick and ActionManager. Extend the existing `src/` tree incrementally; do not create a competing root `MIA/` runtime.
@@ -87,6 +88,8 @@ The complete Windows interaction file list and native-runtime setup steps live i
 ## Survival Supervisor and live acceptance
 
 Survival Supervisor v1 implements earlier threat assessment, bounded sustained recovery, reachable verified shelter/cover, carried-food consumption verification, optional-mode suppression and resumption through Main Supervisor. Keep its configured thresholds and limits testable; initial defaults await live tuning. Retain immediate emergency reactions at higher priority and keep the independent auto-eat plugin disabled. `!supervisor` exposes survival status. Read `docs/mia-survival.md` for the current behavior and packaging command.
+
+During active Survival, hostile damage escape belongs to Survival. Do not re-enable the legacy critical-health `moveAway(20)` path through its priority-100 label: it can pull her out of verified shelter and bypass bounded retreats. Fire, drowning and suffocation still need immediate environmental responses. Recheck cover after fresh damage; older damage before arrival does not invalidate a newly verified refuge. Keep human query results visible in the terminal.
 
 The current outstanding live check is **active shelter repair → one hostile interruption → refreshed conditions → automatic same-site repair resumption → verified completion/released ownership**. It has automated coverage but no reported live pass. Keep the same map/home/world ID; a completed house going straight to `finish` does not test interruption. Separately check cancellation surviving restart. Do not claim any live acceptance passed without Joe's gameplay evidence or an actual observed run.
 

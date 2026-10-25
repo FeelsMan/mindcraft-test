@@ -247,8 +247,10 @@ export class MinecraftSurvivalAdapter {
             const config = supervisor?.config || this.assessor.config, refuge = supervisor?.refuge;
             const clear = !assessment.recent && assessment.nearest > config.clearRadius;
             const unsafe = !clear || assessment.danger && assessment.nearest <= config.threatRadius;
+            const unharmedSinceArrival = !Number.isFinite(state.damageAt) ||
+                state.damageAt <= (supervisor?.refugeDamageAt || 0);
             return assessment.known && (!unsafe ||
-                ['shelter', 'cover'].includes(refuge?.kind) && this.refugeValid(refuge));
+                ['shelter', 'cover'].includes(refuge?.kind) && unharmedSinceArrival && this.refugeValid(refuge));
         };
         if (!active()) return { verified: false, reason: 'Food action interrupted or live conditions unavailable.' };
         if (!safeToEat()) return { verified: false, reason: 'Nearby danger prevents unprotected food consumption.' };

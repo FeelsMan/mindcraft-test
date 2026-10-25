@@ -8,7 +8,61 @@ Document status: shared project reference and Codex development handoff; impleme
 
 Canonical repository filenames: `MIA_PROJECT.md` for project context and `AGENTS.md` for concise coding instructions. Place both beside `package.json` and `main.js` in the Mindcraft repository. This reference supersedes older renamed copies such as `MIA_PROJECT-1.md`; preserve the existing project history when updating it.
 
-### Current recovery correction — October 24, 2026
+### Current cover/control correction — October 24, 2026
+
+Joe's next live log shows verified shelter/cover arrivals, repeated retreat,
+exhausted refuge attempts and the legacy `self_preservation` mode moving her
+again; she died at approximately (31.49, 82.92, 14.50). After the dashboard
+restart, recovery again exhausted routes, reported no food, and kept the new
+shelter goal paused. This is a failed live survival run. No delayed-food or
+active-repair resumption pass is established. The prose claim of full health
+after respawn is a model response, not verified telemetry.
+
+The code allowed the old recent-damage/critical-health `moveAway(20)` to
+interrupt active Survival at priority 100, including from verified refuge or
+after bounded retreat was exhausted. The `mia/survival-cover-2026-10-24` fix
+delegates hostile damage escape to active Survival, with a validator preventing
+an earlier queued legacy escape from starting after recovery begins. Immediate
+environmental responses (fire, drowning and suffocation) retain their existing
+priority. Damage after verified arrival invalidates the refuge and logs a new
+assessment within the existing retreat limits; old damage before arrival does
+not invalidate it. Live position, structure and threat checks remain required.
+
+Joe also requested normal startup memory loading and terminal query results.
+New checkouts default `load_memory` to true through settings and child startup,
+while explicit false is forwarded and honored. Human command results, including
+the complete fresh `!supervisor` summary during recovery, are logged in the
+terminal as well as routed to the existing game/web response.
+
+Installer source updates preserve existing settings. After applying this release,
+with Mia stopped, run `node scripts/configure-memory-default.cjs --enable`
+once to enable the existing installation's startup memory. This helper edits
+only the boolean, keeps exact settings backups and supports `--restore` without
+overwriting later user changes. Profiles, world ID, JSON/SQLite memory, sidecars,
+dependencies and vendor packages remain preserved. The current cumulative
+installer is `mia-survival-cover-update.cjs` (release
+`mia-survival-cover-2026-10-24`), containing 73 source/test/documentation files.
+
+Fresh full checks passed 439/439 locally on Node 24.22.1, including actual
+mode-loop replays on native 1.21.4 and 26.3 at critical health, sealed-shelter
+feeding, bounded blocked recovery, queued escape cancellation, environmental
+priority, terminal queries and memory-setting backup/restore. New damage also
+invalidates cover while food is pending; consumption is cancelled and awaited
+without releasing its physical owner early. Both native versions cover this
+case. All 439 tests passed with zero failures or skips, including upgrade from
+the installed late-food recovery release and exact source rollback with private
+state preserved. GitHub Node 22/Windows checks are pending at this
+writing. Do not reuse historical test counts as this release's results or claim
+this patch is installed.
+
+Next live check: keep the same world, memory ID and house; provide bread and
+start with one controlled hostile. Use `!supervisor` to record actual health,
+hunger, action owner and recovery reason in PowerShell. In intact cover she
+should eat/hold rather than run the legacy damage escape. After danger clears
+and observed recovery conditions hold, verify the saved active repair resumes
+and completes without a new command. Separately repeat the delayed-food test.
+
+### Previous recovery correction — October 24, 2026
 
 Joe's latest live log confirms Survival v1 reaches the observed intact shelter
 and seals its entrance. It then reports no suitable carried food, uses its
