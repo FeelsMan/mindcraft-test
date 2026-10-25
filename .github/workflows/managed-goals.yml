@@ -111,4 +111,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node node_modules/patch-package/index.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js test/grounded-crafting.test.js test/navigation-progress.test.js test/main-supervisor.test.js test/survival-supervisor.test.js test/survival-adapter.test.js
+          node --experimental-test-module-mocks --test test/mining-navigation.test.js test/station-access.test.js test/crafting-results.test.js test/shelter-builder.test.js test/shelter-commands.test.js test/grounded-crafting.test.js test/navigation-progress.test.js test/main-supervisor.test.js test/survival-supervisor.test.js test/survival-adapter.test.js test/survival-modes.test.js test/agent-command-loop.test.js test/agent-process.test.js test/startup-memory.test.cjs

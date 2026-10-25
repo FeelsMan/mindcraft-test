@@ -77,7 +77,10 @@ export class SurvivalSupervisor {
             if (action === 'eat') this.meals++; else this.retreats++;
             const outcome = await this.adapter[action](valid);
             if (!valid()) return;
-            if (action === 'retreat' && outcome?.verified) this.refuge = outcome.destination || null;
+            if (action === 'retreat' && outcome?.verified) {
+                this.refuge = outcome.destination || null;
+                this.refugeDamageAt = this.adapter.observe().damageAt;
+            }
             this.setStatus(outcome?.verified ? 'recovering' : 'blocked', outcome?.reason ||
                 (outcome?.verified ? 'Survival action verified; checking fresh conditions.' : 'Survival action was not verified.'));
         }, valid)).catch(error => {
@@ -123,10 +126,17 @@ export class SurvivalSupervisor {
                 return;
             }
         } else this.calmSince = null;
-        if (this.flight) return;
         // A verified refuge is rechecked by the adapter on each tick; a broken
         // wall or an approaching threat must not silently become safe cover.
-        if (this.refuge && !this.adapter.refugeValid?.(this.refuge)) this.refuge = null;
+        if (this.refuge) {
+            const newDamage = Number.isFinite(s.damageAt) && s.damageAt > (this.refugeDamageAt || 0);
+            if (newDamage || !this.adapter.refugeValid?.(this.refuge)) {
+                this.refuge = null;
+                this.adapter.log?.(newDamage ? 'Refuge invalidated by damage after arrival; reassessing safety.' :
+                    'Refuge no longer verified by live position, blocks or threats; reassessing safety.');
+            }
+        }
+        if (this.flight) return;
         const protectedRefuge = this.refuge && ['shelter', 'cover'].includes(this.refuge.kind);
         const unsafeEnvironment = !clear || a.danger && a.nearest <= this.config.threatRadius;
         let action;

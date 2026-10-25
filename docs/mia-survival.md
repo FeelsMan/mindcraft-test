@@ -16,8 +16,13 @@ health 16 or less, or a potentially lethal recent hit, also enters recovery.
 Hunger 14 or less starts verified feeding even without danger.
 
 Recovery holds managed work, defense, hunting, item collection and optional
-modes between physical actions. Immediate fire/drowning/suffocation/lethal-hit
-responses retain their existing priority. Recovery ends only after no observed
+modes between physical actions. Immediate fire/drowning/suffocation responses
+retain their existing priority. Hostile damage escape stays with Survival during
+recovery; the legacy blind `moveAway(20)` cannot pull her out of verified refuge
+or restart exhausted escape attempts. A queued legacy escape also checks this
+before acquiring ownership. Damage after verified arrival invalidates that
+refuge and requests reassessment within the existing attempt/time limits.
+Recovery ends only after no observed
 hostile within 16 blocks, no damage in the last 6 seconds, health at least 14,
 and acceptable hunger have held for 5 seconds. Entry danger must also have
 cleared; a hostile at 20 blocks with health 16 cannot cause repeated handbacks.
@@ -55,7 +60,8 @@ with the same scope, live agent and no interruption. An `undefined` consume
 result supplies no evidence. Physical promises settle before ownership is
 released; watchdogs handle an abnormal hang.
 
-`!supervisor` reports survival status and the pause/block reason. `!stop` and
+`!supervisor` reports survival status and the pause/block reason in the terminal
+as well as the existing web/game response. `!stop` and
 `!endGoal` invalidate queued survival work and cancel the saved task through
 the existing durable checkpoint. Death/scope changes invalidate stale actions;
 respawn uses fresh observations. No memory schema or model change is needed.
@@ -67,6 +73,15 @@ Stop Mia before applying runtime changes. The cumulative
 `--test` and exact-source `--restore`. It preserves private profiles, settings,
 world identity, JSON/SQLite memory and SQLite sidecars. Rebuild it with
 `node scripts/build-survival-installer.cjs` after changing embedded files.
+
+New checkouts load conversation memory on normal startup by default. An explicit
+`load_memory: false` is still honored, including by the child process. Existing
+installations retain their settings during `--apply`. With Mia stopped, run
+`node scripts/configure-memory-default.cjs --enable` once after applying this
+update to enable startup memory in the existing settings. It edits only that
+boolean and backs up exact original settings bytes; `--restore` on the same
+helper restores them if the settings have not subsequently changed. Profiles,
+world identity and memory contents are never rewritten by the helper.
 
 Automated regressions and controlled native 1.21.4/26.3 replays are separate
 from live Minecraft acceptance. The outstanding live scenario remains active

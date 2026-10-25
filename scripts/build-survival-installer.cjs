@@ -9,7 +9,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const BASELINE = 'e81fcab25d0f31fa0e1527b9a55ee4a7af2f8cec';
-const RELEASE_ID = 'mia-survival-recovery-2026-10-24';
+const RELEASE_ID = 'mia-survival-cover-2026-10-24';
 const NEW_FILES = [
     'src/supervisors/survival.js',
     'src/adapters/minecraft/survival.js',
@@ -20,11 +20,20 @@ const NEW_FILES = [
     'src/agent/managed_goal.js',
     'src/agent/action_manager.js',
     'src/agent/agent.js',
+    'src/process/agent_process.js',
+    'src/process/init_agent.js',
+    'src/mindcraft/mindcraft.js',
+    'scripts/configure-memory-default.cjs',
+    'test/agent-command-loop.test.js',
+    'test/agent-process.test.js',
+    'test/survival-modes.test.js',
+    'test/startup-memory.test.cjs',
     'test/survival-supervisor.test.js',
     'test/survival-adapter.test.js',
     'docs/mia-survival.md'
 ];
-const NEW_TESTS = ['test/survival-supervisor.test.js', 'test/survival-adapter.test.js'];
+const NEW_TESTS = ['test/survival-supervisor.test.js', 'test/survival-adapter.test.js',
+    'test/survival-modes.test.js', 'test/startup-memory.test.cjs'];
 
 function argumentsOf(argv) {
     const options = { root: path.resolve(__dirname, '..'), baseline: BASELINE, extra: [] };

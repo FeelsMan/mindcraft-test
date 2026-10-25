@@ -69,6 +69,20 @@ test('a human request for an unavailable command receives feedback without invok
     assert.match(f.messages[0], /unavailable/);
 });
 
+test('human supervisor queries log the complete fresh result to the terminal during recovery', async t => {
+    const f = fixture([]), lines = [];
+    const result = 'Main Supervisor\nSurvival: blocked; food needed\nHealth: 4/20; Hunger: 8/20';
+    f.agent.main_supervisor = { summary: () => result };
+    f.agent.survival_supervisor = { active: true };
+    f.agent.gather_goal = { active: true };
+    t.mock.method(console, 'log', (...args) => lines.push(args));
+    assert.equal(await f.agent.handleMessage('ADMIN', '!supervisor'), true);
+    assert.equal(f.requests(), 0);
+    assert.deepEqual(lines.filter(args => args[0] === 'Agent executed:'),
+        [['Agent executed:', '!supervisor', 'and got:', result]]);
+    assert.equal(f.messages.filter(message => message === result).length, 1);
+});
+
 test('actual startup handler restores a managed goal before invoking greeting or old self-prompt', async () => {
     const f = fixture([]);
     f.agent.bot.on = () => {};

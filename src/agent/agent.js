@@ -26,7 +26,7 @@ import { speak } from './speak.js';
 import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
 
 export class Agent {
-    async start(load_mem=false, init_message=null, count_id=0) {
+    async start(load_mem=true, init_message=null, count_id=0) {
         if (this._shuttingDown) return;
         this.last_sender = null;
         this.count_id = count_id;
@@ -330,6 +330,7 @@ export class Agent {
                     this.history.add(source, message);
                 }
                 let execute_res = await executeCommand(this, message, requestContext);
+                console.log('Agent executed:', user_command_name, 'and got:', execute_res);
                 if (execute_res) 
                     this.routeResponse(source, execute_res);
                 return true;

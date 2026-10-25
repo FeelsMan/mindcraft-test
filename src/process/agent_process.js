@@ -19,13 +19,13 @@ export class AgentProcess {
         this.restartTimer = null;
     }
 
-    start(load_memory = false, init_message = null, count_id = 0) {
+    start(load_memory = true, init_message = null, count_id = 0) {
         // A live or exiting child remains the sole owner until its exit event.
         if (this.process || this.restartRequested) return this.process;
         this.count_id = count_id;
         this.stopRequested = false;
         const args = [init_agent_path, this.name, '-n', this.name, '-c', count_id];
-        if (load_memory) args.push('-l', load_memory);
+        args.push('-l', String(load_memory));
         if (init_message) args.push('-m', init_message);
         args.push('-p', this.port);
         const child = this.spawnProcess(process.execPath, args, { stdio: 'inherit' });

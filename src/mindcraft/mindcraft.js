@@ -40,7 +40,7 @@ export async function createAgent(settings) {
     const agentIndex = agent_count++;
     const viewer_port = 3000 + agentIndex;
     registerAgent(settings, viewer_port);
-    let load_memory = settings.load_memory || false;
+    let load_memory = settings.load_memory ?? true;
     let init_message = settings.init_message || null;
 
     try {

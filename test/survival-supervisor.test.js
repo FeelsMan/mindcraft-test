@@ -235,6 +235,24 @@ test('failed retreat and invalidated refuge do not reset the bounded attempt cou
     assert.equal(f.supervisor.active, true);
 });
 
+test('damage after verified arrival invalidates cover without renewing the retreat budget', async () => {
+    const f = fixture({ maxRetreats: 2 }), logs = [];
+    f.adapter.log = message => logs.push(message);
+    Object.assign(f.state, { health: 16, threats: [hostile()], damageAt: f.now() - 1 });
+    await tick(f);
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat'], 'Damage predating arrival must not invalidate new cover');
+    f.advance(1); f.state.damageAt = f.now();
+    await tick(f);
+    assert.deepEqual(f.calls, ['retreat', 'retreat']);
+    assert(logs.some(message => /invalidated by damage after arrival/.test(message)));
+    f.advance(1); f.state.damageAt = f.now();
+    for (let i = 0; i < 4; i++) await tick(f);
+    assert.equal(f.supervisor.refuge, null);
+    assert.equal(f.supervisor.retreats, 2);
+    assert.equal(f.supervisor.status, 'blocked');
+});
+
 test('a safer escape position within threat range cannot establish protected cover for eating', async () => {
     const f = fixture({ maxRetreats: 2 });
     Object.assign(f.state, { health: 16, hunger: 8, foodAvailable: true, threats: [hostile()] });

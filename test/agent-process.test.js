@@ -35,6 +35,15 @@ test('repeated start/Connect requests cannot spawn or kill an already starting c
     assert.equal(f.children.length, 1); assert.deepEqual(first.signals, []);
 });
 
+test('normal startup loads memory by default and still forwards an explicit opt-out', t => {
+    for (const value of [undefined, true, false]) {
+        const f = fixture(t), child = value === undefined ? f.manager.start() : f.manager.start(value);
+        const index = child.args.indexOf('-l');
+        assert(index >= 0, 'The child must not guess whether startup memory is wanted');
+        assert.equal(child.args[index + 1], value === false ? 'false' : 'true');
+    }
+});
+
 test('a dashboard restart is registered before graceful exit and creates one replacement', async t => {
     const f = fixture(t);
     const child = f.manager.start(false, null, 4); f.time(20000);

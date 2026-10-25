@@ -79,10 +79,15 @@ const modes_list = [
                 }
             }
             else if (Date.now() - bot.lastDamageTime < 3000 && (bot.health < 5 || bot.lastDamageTaken >= bot.health)) {
+                // Survival already owns threat escape, including holding verified
+                // cover and bounded route retries. A blind moveAway here can
+                // pull her through its closed door and out into the attacker.
+                // Environmental emergencies above still preempt recovery.
+                if (agent.survival_supervisor?.active) return;
                 say(agent, 'I\'m dying!');
                 execute(this, agent, async () => {
                     await skills.moveAway(bot, 20);
-                });
+                }, -1, () => !agent.survival_supervisor?.active);
             }
             else if (agent.isIdle()) {
                 bot.clearControlStates(); // clear jump if not in danger or doing anything else
@@ -321,14 +326,14 @@ const modes_list = [
     }
 ];
 
-async function execute(mode, agent, func, timeout=-1) {
+async function execute(mode, agent, func, timeout=-1, valid=null) {
     if (agent.self_prompter.isActive())
         agent.self_prompter.stopLoop();
     let interrupted_action = agent.actions.currentActionLabel;
     mode.active = true;
     let code_return = await agent.actions.runAction(`mode:${mode.name}`, async () => {
         await func();
-    }, { timeout });
+    }, { timeout, valid });
     mode.active = false;
     console.log(`Mode ${mode.name} finished executing, code_return: ${code_return.message}`);
 
