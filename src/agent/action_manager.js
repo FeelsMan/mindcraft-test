@@ -6,7 +6,7 @@ export function actionPriority(label) {
     if (label === 'mode:cowardice') return 90;
     if (label === 'mode:self_defense') return 80;
     if (label === 'mode:unstuck') return 70;
-    if (['action:makeGoal', 'action:gatherGoal', 'action:shelterGoal'].includes(label)) return 50;
+    if (['action:makeGoal', 'action:gatherGoal', 'action:shelterGoal', 'action:foodGoal'].includes(label)) return 50;
     if (label.startsWith('mode:') || label.startsWith('npc:')) return 10;
     return 40;
 }

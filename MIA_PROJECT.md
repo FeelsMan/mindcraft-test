@@ -1,12 +1,241 @@
 # M.I.A. — Memory, Identity & Agency
 
 Project owner: Joe
-Last updated: 2026-10-24 (America/Phoenix)
+Last updated: 2026-11-05 (America/Phoenix)
 Document status: shared project reference and Codex development handoff; implementation and live evidence separated
 
 ## Read this first
 
 Canonical repository filenames: `MIA_PROJECT.md` for project context and `AGENTS.md` for concise coding instructions. Place both beside `package.json` and `main.js` in the Mindcraft repository. This reference supersedes older renamed copies such as `MIA_PROJECT-1.md`; preserve the existing project history when updating it.
+
+### Food foundation implementation — November 5, 2026
+
+The requested world-food abilities were implemented and verified in the isolated
+`.mia-development/food-v1` checkout, based on `develop` at
+`be563759d4b02bf84aac1281e62b760c732a44d3`, then installed into
+`D:\mai\mindcraft` while Mia was stopped. Other unfinished furnishing work
+and private runtime state were preserved. This delivery uses the existing
+Main Supervisor, ActionManager, navigation, crafting and furnace controllers.
+There is no new background movement/LLM loop or memory-schema migration.
+
+`!foodGoal(8)` obtains a total prepared-food inventory target. It observes mature
+wheat/carrots/potatoes/beetroot, verifies harvesting and pickup, retains and
+verifies a same-site planting obligation, or hunts supported adult unnamed
+land animals with both death and food-pickup receipts. Bread and eight cooked
+food outputs use actual ingredients, tools, stations and fuel. Bootstrap work
+executes as steps of the same managed goal. Raw meat/fish, raw potatoes, unsafe
+foods and reserved planting supplies do not satisfy the prepared reserve.
+
+`!foodReserve(8)` enables a persisted world/dimension-scoped reserve, assessed
+from the existing agent tick when idle and safe. `!foodReserve(0)`, `!stop` and
+`!endGoal` disable automatic reserve work. Existing saved user goals are retained.
+When Survival has no carried food, bounded provisioning can use that same owned
+action while conditions permit, keeping the original foreground target and
+planting obligations through checkpoints. New danger interrupts and settles
+food work; pending recovery planting prevents premature handback.
+Standalone planting obligations also reload after restart when Mia is healthy
+and no longer hungry. Survival reuses an interrupted food goal's own pending
+plot and seed reservation rather than starting a competing food subtask.
+
+Progress includes a five-minute deadline, a 256-step ceiling, bounded scoped
+search and failed-source handling; explicit retry can renew a bounded attempt.
+Reserve failures wait for changed evidence and cooldown. No fishing, breeding,
+irrigation, new-farm construction or general autonomous project selection is
+claimed. See `docs/mia-food.md` for exact commands, source coverage and limits.
+
+Focused checks include controlled native 1.21.4/26.3 empty-food harvest/replant,
+hunt-to-cooked-food chains, interruption/restart planting receipts, no-source
+blockage, cancellation, scoped reserve policy and furnace receipts. Final
+Windows interaction regressions passed **315/315**; SQLite/world-memory checks
+passed **61/61**. `npm run test:goals` passed **535/535**, including Food and
+Survival builder upgrade/rollback checks. Standalone
+`node --test test/crafting-installer.test.cjs` passed **20/20**. All four final
+runs had zero failures and zero skips, using Node **22.23.2**. Earlier attempts
+with source changing during packaging checks were superseded by these frozen
+source runs; no skipped history checks are represented as passes.
+
+The cumulative installer applied **26** changed files, found **51** already
+current and verified all **77** payload files. Exact original bytes were backed
+up under `mia-goal-backups/crafting-reliability/2026-11-06T04-17-09-634Z-6b6f2e7c`.
+Hashes confirmed **101** existing private/runtime-state files unchanged. The
+runtime regression command also includes the four Food test files. Dependencies,
+native packages, model, world ID and memory schema were retained. Mia remains
+stopped; restart with `node main.js --profiles .\mia-qwen.json`.
+The installed runtime's `node mia-food-foundation-update.cjs --test` run passed
+**514** tests and skipped **19** history-dependent installer checks (zero failed).
+The runtime's old Git history cannot establish those upgrade fixtures; the
+separate full-history checkout's **535/535** and standalone **20/20** runs above
+establish their automated upgrade/rollback evidence.
+
+Publication is recorded once completed. No live food-acquisition acceptance is
+established by these automated scenarios. Next live check: empty carried food
+to verified harvesting/hunting, preparation, same-site replanting and held
+reserve; then danger interruption/resumption and cancellation/restart separately.
+
+## Foundation planning and chat organization — October 26, 2026
+
+This documentation update records the foundation checklist, component goals and chat organization developed with Joe. It adds no runtime functionality, new source audit, test run, installation confirmation or live acceptance result. The October 24 implementation history below remains the evidence baseline. Earlier dated snapshots are historical; use the latest recovery correction rather than older statements that Survival v1 is not implemented.
+
+### Foundation versus supervisors
+
+The foundation supplies observation, interaction, memory, verification and recovery. Supervisors coordinate those abilities. A planned specialist supervisor does not mean its underlying ability is missing: existing managed controllers already perform gathering, crafting, smelting and shelter work. Main Supervisor v1 is implemented and observed live coordinating managed goals. Survival Supervisor v1 and its recovery correction are implemented and automatically tested; latest correction installation and full live acceptance remain unconfirmed by this reference. Personality Supervisor, the shared Memory Manager abstraction and the other specialist supervisor modules remain planned.
+
+The immediate planning priority is to identify small abilities individually, establish their evidence and address concrete gaps alongside incremental supervisor development. Do not require a new supervisor or model for every checklist row.
+
+### Ability status definitions
+
+| Status | Meaning |
+| --- | --- |
+| Dependable | Repeated independent live success within a stated scope, including relevant interruptions. This never implies universal reliability. |
+| Conditional | Working implementation or demonstrated cases exist, but limitations or live acceptance remain open. Record automated and live evidence separately. |
+| Unverified | This reference does not establish the general ability. Inspect code or test it before declaring it absent. |
+| Planned | Explicitly future work; no implemented behavior is established here. |
+| Confirmed absent | Relevant source inspection establishes the ability is missing. No row is assigned this status from documentation alone. |
+
+These are initial documentation-based assessments, not a fresh audit of the running agent. No ability is promoted to Dependable merely because automated tests pass. Stable IDs should survive renaming and later chat splits.
+
+### Foundation ability checklist
+
+| ID | Ability / target | Initial assessment and evidence limit |
+| --- | --- | --- |
+| OBS-01 | Read current health, hunger, position and inventory | Conditional: implemented and visible in live logs. |
+| OBS-02 | Detect nearby blocks, resources, stations and threats | Conditional: working examples; resources and stations have previously been overlooked. |
+| OBS-03 | Distinguish fresh observations from remembered information | Conditional: fresh observations and scope checks exist; broad coverage remains open. |
+| OBS-04 | Notice meaningful environmental changes | Conditional: change handling exists; movement corrections have required fixes. |
+| OBS-05 | Identify suitable food sources and crop maturity | Conditional: live scoped discovery, registry crop maturity and supported animal eligibility implemented; automated native 1.21.4/26.3 coverage, live acceptance open. |
+| REQ-01 | Execute a clear supported command | Conditional: managed gathering, crafting, smelting and shelter examples exist. |
+| REQ-02 | Translate ordinary language into a complete task | Conditional: incomplete follow-through is a known issue. |
+| REQ-03 | Clarify meaningful ambiguity before acting | Unverified as a consistent ability. |
+| REQ-04 | Know available actions and their prerequisites | Conditional: command/parser feedback exists; general capability awareness remains unestablished. |
+| ACT-01 | Move to a nearby target and stop | Conditional: working movement with terrain and access limitations. |
+| ACT-02 | Approach and interact within usable reach | Conditional: ore and station fixes have working examples. |
+| ACT-03 | Select and equip an appropriate tool or item | Unverified generally; task-specific use exists. |
+| ACT-04 | Mine blocks and collect resulting resources | Conditional: verified gathering examples exist. |
+| ACT-05 | Craft items and verify output | Conditional: verified live examples exist. |
+| ACT-06 | Use a furnace, supply fuel and retrieve output | Conditional: verified live smelting examples exist. |
+| ACT-07 | Place blocks and verify a structure | Conditional: starter shelter and repair work in demonstrated cases. |
+| ACT-08 | Open, cross and close a doorway | Conditional: fixes implemented; broader live reliability remains open. |
+| ACT-09 | Consume carried food and verify consumption | Conditional: implemented and automatically tested; latest live acceptance remains open. |
+| ACT-10 | Inspect containers and deposit/retrieve specified items | Unverified in this reference. |
+| ACT-11 | Follow, wait near, or give an item to a player | Unverified in this reference; split into separate IDs when individually assessed. |
+| ACT-12 | Harvest mature food crops and verify collection | Conditional: bounded mature wheat/carrot/potato/beetroot harvesting with verified pickup implemented and automatically tested; live acceptance open. |
+| ACT-13 | Hunt a supported food animal and verify food pickup | Conditional: managed adult unnamed untamed land-animal hunting requires observed death and raw-food inventory gain; automated coverage, live acceptance open. |
+| ACT-14 | Cook supported raw food using actual fuel and verify output | Conditional: eight cooked food outputs and bread use managed production with verified supplies/output; automated coverage, live acceptance open. |
+| ACT-15 | Plant/replant and maintain a food source | Conditional: same-site scoped planting obligations, verified young crop and seed use implemented, including interruption/restart; new-farm creation remains outside this version. |
+| NAV-01 | Recognize movement that makes no useful progress | Conditional: bounded navigation-progress tracking exists. |
+| NAV-02 | Recover from a blocked route or stuck position | Conditional: recovery exists; varied terrain remains challenging. |
+| NAV-03 | Return to a remembered location and recheck access | Conditional: remembered returns exist; station access has caused failures. |
+| NAV-04 | Search for something not currently visible | Conditional: resource search exists; broad systematic discovery remains unfinished. |
+| GOAL-01 | Maintain a measurable target | Conditional: managed inventory and shelter targets exist. |
+| GOAL-02 | Resolve prerequisites across multiple tasks | Conditional: some production/building chains exist; general planning remains unestablished. |
+| GOAL-03 | Identify a need without a user command | Conditional: survival needs are assessed; broader needs remain future work. |
+| GOAL-04 | Choose a useful next project independently | Planned: general autonomous project selection. |
+| GOAL-05 | Obtain and replenish a carried food reserve | Conditional: managed food target and persisted opt-in reserve implemented through existing coordination, including Survival provisioning; automated coverage, live acceptance open. |
+| CTRL-01 | Keep one owner of physical actions | Conditional: implemented and tested; full live interruption acceptance remains open. |
+| CTRL-02 | Stop cancelled work and prevent automatic restart | Conditional: automated coverage exists; separate live restart acceptance remains open. |
+| CTRL-03 | Pause for danger and resume the same unfinished task | Conditional: automatically tested; full live acceptance remains open. |
+| CTRL-04 | Recover after death using actual new conditions | Conditional: death position and empty respawn inventory observed; broader recovery remains open. |
+| CHECK-01 | Verify success using inventory or world changes | Conditional: established for managed tasks, not every interaction. |
+| CHECK-02 | Stop retrying and identify a specific blocker | Conditional: bounded attempts and blocked reasons exist. |
+| CHECK-03 | Choose a useful alternative or request specific help | Unverified as a consistent general ability. |
+| MEM-01 | Preserve memories and unfinished goals across sessions | Conditional: SQLite/checkpoints and relevant automated coverage exist. |
+| MEM-02 | Keep worlds and locations correctly scoped | Conditional: implemented and tested. |
+| MEM-03 | Turn failures into reusable lessons that alter later behavior | Unverified as a general learning system. |
+| COM-01 | Accurately report outcomes, uncertainty and remaining work | Conditional: supervisor status exists; natural-language reporting has known inaccuracies. |
+| IDENT-01 | Develop preferences and identity from verified experience | Planned: design exists; runtime identity learning remains unimplemented. |
+
+### Food acquisition foundation — October 29, 2026
+
+Historical planning snapshot; the November 5 implementation record above supersedes its statements about missing managed food behavior.
+
+Joe clarified that obtaining food from the world is a required base ability.
+Eating carried food and retrieving food from a chest do not establish that
+ability. The food milestone must work without a player handing Mia food or
+pre-stocking a supply chest.
+
+Read-only source inspection found older hunting, food-smelting and planting
+helpers in `src/agent/library/skills.js`, plus animal/smelting methods in the
+legacy NPC item planner. These are partial building blocks. The current managed
+make planner has no food outputs, `src/agent/smelting_plan.js` supports only
+iron ingots and charcoal, and Survival currently reports blocked when carried
+food is missing. No dependable end-to-end food acquisition is established.
+
+Prioritize one complete, bounded food chain: observe a reachable supported
+world source, obtain food and verify pickup, cook it with verified supplies and
+output when necessary, then retain the requested edible inventory target.
+Extend this with maturity-aware crop harvesting/replanting and additional food
+sources. Supply-chest retrieval can supplement world acquisition. Coordinate
+through Main Supervisor and ActionManager, respect danger and cancellation,
+retain interrupted work and report a specific blocker when no feasible source
+can be reached. Do not start an independent hunting or farming loop.
+
+Acceptance target: start with no carried food and obtain usable food from the
+world without player-supplied food, verify the inventory gain and any cooking,
+then verify consumption if hungry. Check bounded search, interruption/resumption
+and cancellation separately. This is a proposed milestone, not an implemented
+feature or a live pass. This update changes only the project reference; no
+runtime installation or gameplay test was performed.
+
+### Proposed component goal labels
+
+These labels describe targets, not additional implementation claims. Link each future change to the relevant component goal and foundation IDs.
+
+| Goal | Owner | First target |
+| --- | --- | --- |
+| MAIN-01 | Main Supervisor | Pause, hand off and resume the same goal without competing actions. |
+| WORLD-01 | World State | Supply fresh observations and explicitly mark unknown information. |
+| ACTION-01 | Action Manager | Enforce one physical owner and reliably invalidate cancelled work. |
+| MEMORY-01 | Memory functions / planned Memory Manager | Preserve and retrieve scoped experiences and goal state; refresh remembered facts. Supports MEM-01 through MEM-03. |
+| SURV-01 | Survival Supervisor | Coordinate verified safety/feeding and retain recovery until exit conditions hold. |
+| NAVSYS-01 | Navigation functions / planned supervisor | Reach a verified destination or report a bounded blockage. Supports NAV-01 through NAV-04. |
+| GATH-01 | Gathering functions / planned supervisor | Obtain a requested inventory target and verify collection. |
+| CRAFT-01 | Crafting functions / planned supervisor | Coordinate prerequisites, stations, fuel and verified outputs. |
+| BUILD-01 | Building functions / planned supervisor | Complete or repair the saved shelter from live blocks, including after interruption. |
+| COMBAT-01 | Combat functions / planned supervisor | Respond to threats while respecting recovery and preserving interrupted work. |
+| PERS-01 | Planned Personality Supervisor | Advise feasible choices using starting traits without owning physical actions. |
+| ADAPT-01 | Environment adapter | Expose environment observations, capabilities and verified results consistently. |
+
+Personality subgoals: IDENT-01 covers gradual evidence-backed identity development; IDENT-02 covers learned preferences and habits; IDENT-03 covers temporary mood responses that decay toward baseline; IDENT-04 covers deduplicated evaluation with an evidence trail; IDENT-05 covers a revisable self-model. Preserve the agreed starting traits and detailed rules later in this reference. These subgoals remain proposed, not implemented.
+
+### Initial foundation audit scenarios — proposed, not passed
+
+1. Move to a specified nearby location and wait. Verify arrival and no unintended continued movement.
+2. Collect a specified amount of one resource. Record starting inventory, whether the target means total held or additional collection, and final inventory.
+3. Craft one item from available materials. Verify the actual output and distinguish newly crafted items from those already held.
+4. Deposit a specified item/count in a chest, then retrieve it. Verify both inventories and preserve unrelated contents. Establish supported capability before choosing commands.
+5. Eat available suitable food. Verify consumption and the resulting food/inventory state.
+6. Stop midway through a task and remain stopped. Separately restart and check cancellation remains respected.
+7. Encounter a deliberate blockage, recognize no progress, report the cause and avoid endless retries.
+8. Resume the same task after a controlled interruption, using fresh observations and releasing ownership after verified completion.
+
+Use the detailed recovery and repair scenarios below for the shared milestone, **Recover and finish the same task**. Keep the existing map, house and memory; no need to reset the project. Keep this milestone open until actual live evidence supports it; it is not an approval gate for unrelated development.
+
+Each ability/goal record should contain: stable ID; responsible module; trigger/request; scope and preconditions; dependencies; observable success; blocked/timeout behavior; cancellation and handoff behavior; implementation/revision evidence; automated evidence; independent live evidence; assistance required; unresolved failures; next action. Record trial counts and conditions rather than inventing a reliability percentage. A trial requiring manual assistance is assisted, not independent success.
+
+### Chat organization
+
+Organize chats by ongoing responsibility. These are suggested chat names, not a claim that chats have been created or renamed.
+
+| Suggested chat | Scope |
+| --- | --- |
+| 00 — MIA Overview & Roadmap | Overall goals, architecture decisions, priorities and cross-chat summaries. This planning conversation fits here. |
+| 01 — Foundation & Ability Checklist | Stable ability IDs, evidence, missing functions, limitations and audit results. |
+| 02 — Supervisors & Coordination | Priorities, ownership, interruption, cancellation and resumption. |
+| 03 — Minecraft Skills | Movement, resources, production, containers, building and combat; split a skill when substantial. |
+| 04 — Memory & Learning | Persistence, retrieval, knowledge and learning from experience. |
+| 05 — Personality & Identity | Traits, mood, preferences, experience evaluation and self-model. |
+| 06 — Live Testing & Troubleshooting | Logs, screenshots, reproducible failures and acceptance results. |
+
+Start with three active chats: Overview & Roadmap, Foundation & Ability Checklist, and Live Testing & Troubleshooting. Add specialist chats as work grows. Keep code work with its topic: doorway fixes with Minecraft Skills, cancellation fixes with Supervisors & Coordination. Cross-reference related ability IDs when a problem spans chats.
+
+`MIA_PROJECT.md` remains the shared reference. The checklist is embedded here for now. `MIA_ABILITIES.md` is a proposed future extraction, not a file created by this update. If extracted later, designate it as the checklist authority and link it here rather than maintaining two competing copies.
+
+At the end of a meaningful session, record: decision/change; affected IDs; evidence level (proposed, implemented, automatically tested, verified live); remaining issue; next action. Update the authoritative reference while preserving newer information from other work. Do not assume another chat has received a decision until its current reference has been checked.
+
+Suggested opening instruction for a focused chat:
+
+> Read the current MIA_PROJECT.md and its foundation checklist (or MIA_ABILITIES.md if explicitly extracted). This chat covers [topic]. Preserve existing decisions, distinguish plans from implementation and live evidence, use stable goal/ability IDs, and record reference updates after meaningful work.
+
 
 ### Current recovery correction — October 24, 2026
 

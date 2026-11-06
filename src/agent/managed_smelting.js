@@ -157,7 +157,10 @@ export class ManagedFurnace {
             furnacePending(this.read(window), output); // Preserve unrelated contents.
             if (window.outputItem()) {
                 await window.takeOutput();
-                if (bot.interrupt_code || playerCount(bot, window, output) > baseline) return true;
+                // A delayed or unverified receipt must settle before another
+                // input batch is loaded. The owning controller checks live
+                // inventory after close and can replan without duplicating it.
+                return playerCount(bot, window, output) > baseline;
             }
             const remaining = Math.max(0, target - playerCount(bot, window, output));
             if (!remaining) return true;

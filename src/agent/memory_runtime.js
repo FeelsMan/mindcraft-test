@@ -6,13 +6,15 @@ import { restoredResourceSearch } from './resource_recovery.js';
 import { shelterRecord } from './shelter_blueprint.js';
 import Vec3 from 'vec3';
 import { WorldMemorySync } from './world_memory_sync.js';
+import { restoreFoodProgress } from './food_policy.js';
 
 const dimensionOf = bot => String(bot.game?.dimension ?? 'unknown');
 const textOf = value => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 400);
 const resumable = new Set(['running', 'paused']);
-const validGoal = goal => goal && ['make', 'gather', 'shelter'].includes(goal.kind) &&
+const validGoal = goal => goal && ['make', 'gather', 'shelter', 'food'].includes(goal.kind) &&
     /^[a-z0-9_]{1,80}$/.test(goal.item) && Number.isSafeInteger(goal.target) && goal.target >= 1 && goal.target <= 64 &&
-    (goal.kind !== 'shelter' || goal.item === 'shelter' && goal.target === 1 && (goal.shelter == null || shelterRecord(goal.shelter)));
+    (goal.kind !== 'shelter' || goal.item === 'shelter' && goal.target === 1 && (goal.shelter == null || shelterRecord(goal.shelter))) &&
+    (goal.kind !== 'food' || goal.item === 'food');
 const stepKey = (step, position) => `${step.type === 'place' ? 'place-v2' : step.type}:${step.item}:` + (step.position ?
     `block:${step.position.x},${step.position.y},${step.position.z}` : cellOf(position));
 const cosine = (a, b) => {
@@ -208,12 +210,35 @@ export class AgentMemory {
             .slice(0, 6).map(row => row.position), []);
     }
 
+    foodReserve() {
+        return this.safe(() => {
+            const data = this.store.getLocation(this.world, this.dimension, 'policy:food-reserve')?.metadata;
+            return data && Number.isSafeInteger(data.target) && data.target >= 0 && data.target <= 64 ? data : { target: 0 };
+        }, { target: 0 });
+    }
+    saveFoodReserve(policy) {
+        return this.safe(() => this.store.putLocation(this.world, this.dimension, 'policy:food-reserve', 'food_policy',
+            this.position || { x: 0, y: 0, z: 0 }, { target: Math.max(0, Math.min(64, policy.target || 0)),
+                blocked: typeof policy.blocked === 'string' ? policy.blocked.slice(0, 16000) : null,
+                retryAfter: Number.isFinite(policy.retryAfter) ? policy.retryAfter : 0 }));
+    }
+    foodRecovery() {
+        return this.safe(() => restoreFoodProgress(this.store.getLocation(this.world, this.dimension, 'progress:food-recovery')?.metadata), {});
+    }
+    saveFoodRecovery(context) {
+        return this.safe(() => context ? this.store.putLocation(this.world, this.dimension, 'progress:food-recovery', 'food_recovery',
+            this.position || { x: 0, y: 0, z: 0 }, restoreFoodProgress(context)) :
+            this.store.deleteLocation(this.world, this.dimension, 'progress:food-recovery'));
+    }
+
     beginGoal(goal) {
         goal.memoryId = randomUUID();
         goal.memoryDimension = this.dimension;
         goal.memoryDeaths = this.restoringGoal?.deaths || 0;
         goal.manualRetry = this.restoringGoal?.manualRetry === true;
         goal.resourceSearch = restoredResourceSearch(this.restoringGoal?.resourceSearch);
+        if (goal.kind === 'food') Object.assign(goal, restoreFoodProgress(this.restoringGoal || goal));
+        if (this.restoringGoal?.foodRecovery) goal.foodRecovery = { ...restoreFoodProgress(this.restoringGoal.foodRecovery), target: 1 };
         this.checkpoint(goal, 'running');
     }
     checkpoint(goal, status = 'running', reason = '') {
@@ -228,6 +253,8 @@ export class AgentMemory {
                 dimension: goal.memoryDimension || this.dimension, status, reason: textOf(reason),
                 deaths: goal.memoryDeaths || 0,
                 resourceSearch: restoredResourceSearch(goal.resourceSearch),
+                ...(goal.kind === 'food' ? { ...restoreFoodProgress(goal), automatic: Boolean(goal.automatic) } : {}),
+                ...(goal.foodRecovery ? { foodRecovery: restoreFoodProgress(goal.foodRecovery) } : {}),
                 ...(goal.kind === 'shelter' ? { shelter: shelterRecord(goal.shelter) } : {}),
                 step: goal.memoryStep ? { type: goal.memoryStep.type, item: goal.memoryStep.item } : null,
                 updated: this.clock()
@@ -250,6 +277,7 @@ export class AgentMemory {
         this.checkpoint(goal, status, report);
         if (complete) this.record({ kind: 'goal_complete', item: goal.item, position: this.position, verified: true,
             text: goal.kind === 'shelter' ? `Verified shelter shell and door at ${JSON.stringify(goal.shelter?.origin)}; entrance crossed and sealed. Recheck world blocks before reuse.` :
+                goal.kind === 'food' ? `Verified ${goal.target} prepared food items in inventory and completed planting obligations at that time.` :
                 `Verified goal completed: at least ${goal.target} ${goal.item} in inventory at that time.` });
     }
 
@@ -300,7 +328,9 @@ export class AgentMemory {
         this.safe(() => this.store.clearFailure(this.world, this.dimension, stepKey(step, this.position)));
         const building = ['place', 'clear', 'finish', 'site', 'return'].includes(step.type);
         this.record({ kind: step.type, item: step.item, position: step.position || this.position, verified: true,
-            text: building ? `Verified shelter ${step.type} for ${step.item} at ${JSON.stringify(step.position || this.position)}. Historical observation; recheck world blocks.` :
+            text: ['harvest', 'hunt', 'replant', 'search'].includes(step.type) ?
+                `Verified food ${step.type} result for ${step.item} at ${JSON.stringify(step.position || this.position)}. Historical observation; recheck world and inventory.` :
+                building ? `Verified shelter ${step.type} for ${step.item} at ${JSON.stringify(step.position || this.position)}. Historical observation; recheck world blocks.` :
                 `Verified ${step.type} result: inventory increased for ${step.item}. Historical outcome; recheck current inventory.` });
         if (step.type === 'gather' && this.position) this.safe(() => this.store.putLocation(this.world, this.dimension,
             `resource:${step.item}:${cellOf(this.position)}`, 'resource', this.position, { item: step.item }));
@@ -322,9 +352,14 @@ export class AgentMemory {
         if (!validGoal(goal) || !(resumable.has(goal.status) || manual && goal.status === 'blocked')) return false;
         if (goal.dimension !== this.dimension || this.agent.recovering_from_death) return false;
         const command = goal.kind === 'shelter' ? '!shelterGoal' :
+            goal.kind === 'food' ? `!foodGoal(${goal.target})` :
             `!${goal.kind === 'make' ? 'makeGoal' : 'gatherGoal'}(${JSON.stringify(goal.item)}, ${goal.target})`;
         let result;
-        this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {}, manualRetry: true } : goal;
+        this.restoringGoal = manual ? { ...goal, deaths: 0, resourceSearch: {}, foodSearch: null,
+            foodActions: 0, foodFailures: 0, foodDeadline: this.clock() + 300000, foodRejected: [],
+            foodRecovery: goal.foodRecovery ? { ...goal.foodRecovery, foodActions: 0, foodFailures: 0,
+                foodDeadline: this.clock() + 300000, foodRejected: [] } : undefined,
+            manualRetry: true } : goal;
         try { result = await execute(command); }
         finally { this.restoringGoal = null; }
         const current = this.pendingGoal();

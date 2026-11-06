@@ -1,6 +1,8 @@
 import { reportManagedGoal } from './managed_goal_report.js';
 import { installMainSupervisor } from '../adapters/minecraft/supervisor.js';
 import { installSurvivalSupervisor } from '../adapters/minecraft/survival.js';
+import { FoodReserve } from './food_reserve.js';
+import { foodRuntime } from '../adapters/minecraft/food_runtime.js';
 import { installDeathRecovery } from './death_recovery.js';
 import { installLocalMemory } from './memory_runtime.js';
 import { requestActionInterrupt } from './action_interrupt.js';
@@ -102,6 +104,7 @@ export class Agent {
         initModes(this);
         installMainSupervisor(this);
         installSurvivalSupervisor(this);
+        this.food_reserve = new FoodReserve(this, foodRuntime(this));
 
         this.bot.on('login', () => {
             console.log(this.name, 'logged in!');
@@ -244,6 +247,7 @@ export class Agent {
     }
 
     async resumeMemoryGoal(manual = false, requestContext = null) {
+        if (manual && !this.gather_goal?.active) this.food_reserve?.retry();
         const restore = valid => this.local_memory?.resume(command => valid() ?
             executeCommand(this, command, requestContext) : 'Resume cancelled.', { manual }) || false;
         return this.main_supervisor ? this.main_supervisor.resume(restore) : restore(() => true);
@@ -330,6 +334,7 @@ export class Agent {
                     this.history.add(source, message);
                 }
                 let execute_res = await executeCommand(this, message, requestContext);
+                console.log('Agent executed:', user_command_name, 'and got:', execute_res);
                 if (execute_res) 
                     this.routeResponse(source, execute_res);
                 return true;
@@ -562,6 +567,7 @@ export class Agent {
         if (this._shuttingDown || this.recovering_from_death) return;
         await this.bot.modes.update();
         if (this.survival_supervisor?.active) return;
+        this.food_reserve?.update();
         this.self_prompter.update(delta);
         await this.checkTaskDone();
     }
