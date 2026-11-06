@@ -67,8 +67,17 @@ The runtime's old Git history cannot establish those upgrade fixtures; the
 separate full-history checkout's **535/535** and standalone **20/20** runs above
 establish their automated upgrade/rollback evidence.
 
-Publication is recorded once completed. No live food-acquisition acceptance is
-established by these automated scenarios. Next live check: empty carried food
+Published in [PR #5](https://github.com/FeelsMan/mindcraft-test/pull/5),
+implementation commit `ac248c0560b31322384b13eb7a5f379e3df90c4d`, merged into
+`develop` as `5696e907741b12109e85e57a8aff585848c3a9bd`. All four GitHub jobs
+passed in [run 42161819258](https://github.com/FeelsMan/mindcraft-test/actions/runs/42161819258):
+Linux full suite **535/535**, installer **20/20**, Windows memory **61/61** and
+Windows interactions **315/315**, with zero failures or skips. The workflow
+published the `mia-food-foundation-update` installer artifact. This final
+publication record is a documentation-only follow-up to the tested code.
+
+No live food-acquisition acceptance is established by these automated scenarios.
+Next live check: empty carried food
 to verified harvesting/hunting, preparation, same-site replanting and held
 reserve; then danger interruption/resumption and cancellation/restart separately.
 
