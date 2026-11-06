@@ -4,7 +4,7 @@ export const survivalDefaults = Object.freeze({
     lowHealth: 12, threatenedHealth: 16, recoverHealth: 14, eatAt: 14,
     closeThreat: 5, threatRadius: 24, clearRadius: 16,
     damageWindowMs: 6000, calmMs: 5000, budgetMs: 90000,
-    maxRetreats: 3, maxMeals: 6
+    maxRetreats: 3, maxMeals: 6, maxProvisions: 64
 });
 
 // Assessed by the existing agent tick. Physical work always goes through the
@@ -74,7 +74,9 @@ export class SurvivalSupervisor {
             if (!valid()) return;
             this.held = true;
             if (!action) return; // ActionManager has settled the previous owner.
-            if (action === 'eat') this.meals++; else this.retreats++;
+            if (action === 'eat') this.meals++;
+            else if (action === 'retreat') this.retreats++;
+            else if (action === 'provision') this.provisions++;
             const outcome = await this.adapter[action](valid);
             if (!valid()) return;
             if (action === 'retreat' && outcome?.verified) this.refuge = outcome.destination || null;
@@ -103,19 +105,21 @@ export class SurvivalSupervisor {
             }
             return;
         }
+        const pendingFoodWork = Boolean(this.adapter.pendingFoodWork?.());
         if (!this.active) {
-            if (this.flight || !a.danger && !a.hungry || this.suppressed === this.signature(s)) return;
+            if (this.flight || !a.danger && !a.hungry && !pendingFoodWork || this.suppressed === this.signature(s)) return;
             this.suppressed = null;
             this.active = true; this.epoch++;
             this.scope = { ...s.scope };
             this.startedAt = now; this.calmSince = null;
-            this.retreats = 0; this.meals = 0; this.refuge = null;
+            this.retreats = 0; this.meals = 0; this.provisions = 0; this.refuge = null;
             this.held = false;
-            this.setStatus('recovering', a.danger ? 'Danger detected; preserving the interrupted task.' : 'Hunger requires verified food.');
+            this.setStatus('recovering', a.danger ? 'Danger detected; preserving the interrupted task.' :
+                pendingFoodWork ? 'Saved food planting requires verified recovery.' : 'Hunger requires verified food.');
         }
         const needsFood = s.hunger < 20 && (a.hungry || s.health < 18);
         const clear = !a.recent && a.nearest > this.config.clearRadius;
-        if (clear && !a.danger && s.health >= this.config.recoverHealth && !needsFood && !this.flight) {
+        if (clear && !a.danger && s.health >= this.config.recoverHealth && !needsFood && !pendingFoodWork && !this.flight) {
             this.calmSince ??= now;
             if (now - this.calmSince >= this.config.calmMs) {
                 this.active = false; this.epoch++;
@@ -130,6 +134,11 @@ export class SurvivalSupervisor {
         const protectedRefuge = this.refuge && ['shelter', 'cover'].includes(this.refuge.kind);
         const unsafeEnvironment = !clear || a.danger && a.nearest <= this.config.threatRadius;
         let action;
+        if (!unsafeEnvironment && pendingFoodWork && this.adapter.canProvision?.() && this.provisions < this.config.maxProvisions) {
+            this.setStatus('provisioning', 'Restoring the harvested food plot before returning to the interrupted task.');
+            this.dispatch('provision');
+            return;
+        }
         if (unsafeEnvironment && !protectedRefuge && this.retreats < this.config.maxRetreats) {
             if (now - this.startedAt >= this.config.budgetMs) {
                 this.hold('blocked', 'Recovery budget exhausted; task held until observed conditions improve.');
@@ -139,7 +148,12 @@ export class SurvivalSupervisor {
         }
         else if (needsFood && (!unsafeEnvironment || protectedRefuge) && this.meals < this.config.maxMeals) {
             if (!s.foodAvailable) {
-                this.hold('blocked', 'No suitable food in live inventory; supply edible food. Recovery will recheck it, including after the retreat deadline.');
+                if (this.adapter.canProvision?.() && this.provisions < this.config.maxProvisions) {
+                    this.setStatus('provisioning', 'No carried food; obtaining a verified food supply while conditions permit.');
+                    this.dispatch('provision');
+                    return;
+                }
+                this.hold('blocked', 'No suitable food in live inventory; safe food collection is unavailable or its bounded attempts are exhausted.');
                 return;
             }
             // Waiting for supplies or a threat to clear must not permanently
@@ -161,6 +175,7 @@ export class SurvivalSupervisor {
 
     view() {
         return { version: 1, active: this.active, status: this.status, reason: this.reason,
-            retreatAttempts: this.retreats || 0, foodAttempts: this.meals || 0 };
+            retreatAttempts: this.retreats || 0, foodAttempts: this.meals || 0,
+            provisioningAttempts: this.provisions || 0 };
     }
 }

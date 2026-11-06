@@ -171,3 +171,23 @@ test('a memory query during managed work does not replace its instruction epoch'
     assert.equal(f.requests(), 0);
     assert.equal(f.messages.some(s => s.includes('Verified memory summary')), true);
 });
+
+test('a typed supervisor query logs its result in the console while managed work remains active', async t => {
+    const f = fixture([]);
+    const output = [];
+    t.mock.method(console, 'log', (...args) => output.push(args));
+    const summary = 'MAIN SUPERVISOR v1 Goal: shelter 1 (paused). Waiting for safety recovery.';
+    f.agent.main_supervisor = { summary: () => summary };
+    f.agent.gather_goal = { active: true };
+    f.agent.instruction_epoch = 4;
+
+    assert.equal(await f.agent.handleMessage('ADMIN', '!supervisor'), true);
+
+    assert.deepEqual(output.filter(args => args[0] === 'Agent executed:'), [
+        ['Agent executed:', '!supervisor', 'and got:', summary]
+    ]);
+    assert.equal(f.messages.filter(message => message === summary).length, 1);
+    assert.equal(f.requests(), 0);
+    assert.equal(f.agent.instruction_epoch, 4);
+    assert.equal(f.agent.gather_goal.active, true);
+});

@@ -1,4 +1,9 @@
-export const smeltingRecipes = Object.freeze({ iron_ingot: 'raw_iron', charcoal: 'oak_log' });
+export const foodCookingRecipes = Object.freeze({
+    cooked_beef: 'beef', cooked_porkchop: 'porkchop', cooked_mutton: 'mutton',
+    cooked_chicken: 'chicken', cooked_rabbit: 'rabbit', cooked_cod: 'cod',
+    cooked_salmon: 'salmon', baked_potato: 'potato'
+});
+export const smeltingRecipes = Object.freeze({ iron_ingot: 'raw_iron', charcoal: 'oak_log', ...foodCookingRecipes });
 export const ironPickaxes = new Set(['copper', 'stone', 'iron', 'diamond', 'netherite'].map(tier => tier + '_pickaxe'));
 export const fuelTicks = name => name === 'coal' || name === 'charcoal' ? 1600 :
     typeof name === 'string' && name.endsWith('_planks') ? 300 : 0;

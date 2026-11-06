@@ -7,6 +7,7 @@ import { shelterRecord } from '../../agent/shelter_blueprint.js';
 import { safeFeet, safeSolid, safeWaypoints, walkSafely } from '../../agent/navigation_recovery.js';
 import { guardShelterDoor, protectCraftingMaterials } from '../../agent/navigation_policy.js';
 import { withActionWatchdog } from '../../agent/action_interrupt.js';
+import { foodItems } from '../../agent/food_policy.js';
 
 // Entity type "mob" also includes passive animals in some native versions.
 const hostiles = new Set(['blaze', 'bogged', 'breeze', 'cave_spider', 'creeper', 'drowned',
@@ -41,11 +42,12 @@ export class MinecraftSurvivalAdapter {
     food() {
         const bot = this.agent.bot;
         if (!bot.inventory?.items || !bot.registry?.foodsByName) return [];
-        return bot.inventory.items().filter(item => item.count > 0 && !unsafeFoods.has(item.name) &&
-            Number.isFinite(bot.registry.foodsByName[item.name]?.foodPoints) &&
-            bot.registry.foodsByName[item.name].foodPoints > 0 && !item.name.endsWith('_bucket'))
+        return foodItems(bot, this.agent.food_reserve?.context()).filter(item => !unsafeFoods.has(item.name))
             .sort((a, b) => bot.registry.foodsByName[b.name].foodPoints - bot.registry.foodsByName[a.name].foodPoints);
     }
+    canProvision() { return this.agent.food_reserve?.canProvision() || false; }
+    provision(valid) { return this.agent.food_reserve.provision(valid); }
+    pendingFoodWork() { return this.agent.food_reserve?.pendingRecovery() || false; }
 
     threats() {
         const bot = this.agent.bot;

@@ -5,13 +5,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const repository = path.resolve(__dirname, '..');
+const foodInstaller = path.join(repository, 'scripts/mia-food-foundation-update.cjs');
 const survivalInstaller = path.join(repository, 'scripts/mia-survival-supervisor-update.cjs');
 const repairInstaller = path.join(repository, 'scripts/mia-shelter-repair-update.cjs');
 const namedInstaller = path.join(repository, 'scripts/mia-main-supervisor-update.cjs');
 const scriptsInstaller = path.join(repository, 'scripts/mia-crafting-reliability-fix.cjs');
 // --test must validate the file actually launched by the user, even when an
 // older installer remains elsewhere in their Mindcraft folder.
-const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(survivalInstaller) ? survivalInstaller : fs.existsSync(repairInstaller) ? repairInstaller : fs.existsSync(namedInstaller) ? namedInstaller :
+const installer = process.env.MIA_TEST_INSTALLER || (fs.existsSync(foodInstaller) ? foodInstaller : fs.existsSync(survivalInstaller) ? survivalInstaller : fs.existsSync(repairInstaller) ? repairInstaller : fs.existsSync(namedInstaller) ? namedInstaller :
     fs.existsSync(scriptsInstaller) ? scriptsInstaller : path.join(repository, 'mia-main-supervisor-update.cjs'));
 const { PAYLOAD, normalize } = require(installer);
 const baseline = 'f231c082f0ebeb838c8edb844479db08c477f37b';
@@ -72,6 +73,26 @@ function latest(f) {
 test('the standalone installer embeds the current source, tests and documentation', () => {
     for (const entry of PAYLOAD)
         assert.equal(normalize(fs.readFileSync(path.join(repository, entry.path))), entry.content, entry.path);
+});
+
+test('the published recovery build upgrades Food v1 and rolls back exact bytes while preserving private state', {
+    skip: !gitFile('be563759d4b02bf84aac1281e62b760c732a44d3', 'package.json')
+}, () => {
+    const f = fixture('be563759d4b02bf84aac1281e62b760c732a44d3');
+    try {
+        ok(run(f, '--check')); ok(run(f, '--apply')); ok(run(f, '--verify'));
+        assertPrivateUnchanged(f);
+        for (const relative of ['src/agent/food_policy.js', 'src/agent/food_goal.js',
+            'src/agent/food_reserve.js', 'src/adapters/minecraft/food.js', 'src/adapters/minecraft/food_runtime.js'])
+            assert(fs.existsSync(path.join(f.root, relative)), relative);
+        assert.match(fs.readFileSync(path.join(f.root, 'src/agent/commands/actions.js'), 'utf8'), /!foodGoal/);
+        ok(run(f, '--restore'));
+        for (const [name, bytes] of f.before) {
+            if (bytes === null) assert.equal(fs.existsSync(path.join(f.root, name)), false, name);
+            else assert.deepEqual(fs.readFileSync(path.join(f.root, name)), bytes, name);
+        }
+        assertPrivateUnchanged(f);
+    } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
 test('the installed Survival v1 upgrades recovery and restores exact bytes with private state retained', {

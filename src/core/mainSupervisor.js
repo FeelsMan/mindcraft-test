@@ -1,10 +1,10 @@
 import { readWorldState, sameScope } from './worldState.js';
 
-const managedLabels = new Set(['action:makeGoal', 'action:gatherGoal', 'action:shelterGoal']);
+const managedLabels = new Set(['action:makeGoal', 'action:gatherGoal', 'action:shelterGoal', 'action:foodGoal']);
 const specialistForStep = type => ({ gather: 'gathering', craft: 'crafting', smelt: 'crafting',
     inspect: 'crafting', recover: 'crafting', return: 'navigation', site: 'building',
-    place: 'building', clear: 'building', finish: 'building' })[type] || 'navigation';
-const specialistForGoal = kind => ({ make: 'crafting', gather: 'gathering', shelter: 'building' })[kind];
+    place: 'building', clear: 'building', finish: 'building', harvest: 'food supply', hunt: 'food supply', replant: 'food supply' })[type] || 'navigation';
+const specialistForGoal = kind => ({ make: 'crafting', gather: 'gathering', shelter: 'building', food: 'food supply' })[kind];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // One foreground goal. Specialists retain their planners; ActionManager is the
@@ -178,6 +178,7 @@ export class MainSupervisor {
                 `Specialist: ${goal.specialist}. Reason: ${goal.reason}\n` : 'No managed goal.\n') +
             `Action owner: ${owner ? owner.specialist + ' / ' + owner.label : 'none'}.\n` +
             `Live condition: health ${state.health ?? 'unknown'}, hunger ${state.hunger ?? 'unknown'}; ${state.scope.dimension}.` +
-            (state.survival ? `\nSURVIVAL v1: ${state.survival.status}; ${state.survival.reason}` : '');
+            (state.survival ? `\nSURVIVAL v1: ${state.survival.status}; ${state.survival.reason}` : '') +
+            (state.foodReserve ? `\nFood reserve: ${state.foodReserve.held}/${state.foodReserve.target}; ${state.foodReserve.target ? 'enabled' : 'disabled'}.` : '');
     }
 }

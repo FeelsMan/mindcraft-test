@@ -1,6 +1,7 @@
 import { MainSupervisor } from '../../core/mainSupervisor.js';
 import { emergencyModes } from '../../agent/managed_goal.js';
 import { inspectShelter } from '../../agent/shelter_building.js';
+import { countFood } from '../../agent/food_policy.js';
 
 export class MinecraftSupervisorAdapter {
     constructor(agent) { this.agent = agent; }
@@ -16,6 +17,7 @@ export class MinecraftSupervisorAdapter {
             available: !agent._shuttingDown && !agent._disconnectHandled && !bot._client?.ended,
             recovering: agent.recovering_from_death || agent.survival_supervisor?.active,
             survival: agent.survival_supervisor?.view() || null,
+            foodReserve: agent.food_reserve?.view() || null,
             health: bot.health, hunger: bot.food,
             position: p && [p.x, p.y, p.z].every(Number.isFinite) ? { x: p.x, y: p.y, z: p.z } : null,
             inventory,
@@ -25,6 +27,8 @@ export class MinecraftSupervisorAdapter {
     }
 
     verifyCompletion(goal) {
+        if (goal.kind === 'food') return { verified: !goal.replantPending && countFood(this.agent.bot, goal) >= goal.target,
+            reason: 'Prepared food inventory target and replanted harvested plots must be verified.' };
         if (goal.kind === 'shelter') {
             try {
                 const state = inspectShelter(this.agent.bot, goal.shelter);

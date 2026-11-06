@@ -7,6 +7,8 @@ import { startGatherGoal, cancelGatherGoal } from '../gather_goal.js';
 import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
+import { startFoodGoal } from '../food_goal.js';
+import { foodRuntime } from '../../adapters/minecraft/food_runtime.js';
 
 
 function runAsAction (actionFn, resume = false, timeout = -1) {
@@ -51,6 +53,22 @@ function managedSkills(requestContext) {
 }
 
 export const actionsList = [
+    {
+        name: '!foodGoal',
+        description: 'Obtain and KEEP a total prepared food inventory target from reachable mature crops or suitable land animals. Verifies pickup, replants harvested crops, prepares wheat or raw food with actual stations/fuel, and resumes through safety interruptions. Reports bounded blockage when no safe source exists. !stop cancels saved food work.',
+        params: { count: { type: 'int', description: 'Total prepared food items to keep; raw meat and reserved seeds do not count.', domain: [1, 64] } },
+        perform: (agent, count, request = {}) => startFoodGoal(agent, count, agent.food_reserve?.api || foodRuntime(agent), request || {})
+    },
+    {
+        name: '!foodReserve',
+        description: 'Enable a scoped persistent carried-food reserve, replenished through managed food work when idle and safe. 0 disables it; !stop also disables it across restart. This does not create a separate action loop.',
+        params: { count: { type: 'int', description: 'Prepared food items to keep in reserve, or 0 to disable.', domain: [0, 64] } },
+        perform: async (agent, count) => {
+            const message = agent.food_reserve?.configure(count) || 'Food reserve is unavailable.';
+            if (count === 0 && agent.gather_goal?.kind === 'food' && agent.gather_goal.automatic) await cancelGatherGoal(agent);
+            return message;
+        }
+    },
     {
         name: '!resetShelter',
         description: 'Abandon the saved shelter site in the current world/dimension so a later shelter request chooses a new one. Cancels an active shelter build. Leaves placed blocks and experience history intact; removes the home waypoint only if it belongs to that site. Use when abandoning this site, not for an ordinary retry.',

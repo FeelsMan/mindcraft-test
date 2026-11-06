@@ -4,7 +4,7 @@ export function countItem(bot, item) {
     return bot.inventory.items().filter(x => x.name === item).reduce((n, x) => n + x.count, 0);
 }
 export function gatherCommandAllowed(agent, name) {
-    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!supervisor', '!endGoal', '!stop'].includes(name) ||
+    return !agent.gather_goal?.active || ['!stats', '!inventory', '!memory', '!supervisor', '!endGoal', '!stop', '!foodReserve'].includes(name) ||
         name === '!resetShelter' && agent.gather_goal.kind === 'shelter';
 }
 export async function startGatherGoal(agent, item, target, collect, pickup, { resourceRecovery = false, requestContext } = {}) {
@@ -104,6 +104,7 @@ export async function startGatherGoal(agent, item, target, collect, pickup, { re
     return `Collection target set: keep at least ${target} ${item}. Inventory checks will stop the goal automatically.`;
 }
 export async function cancelGatherGoal(agent) {
+    agent.food_reserve?.cancel();
     const survivalActive = agent.survival_supervisor?.active;
     agent.survival_supervisor?.cancel();
     const goal = agent.gather_goal;

@@ -22,6 +22,7 @@ This repository develops M.I.A. (Memory, Identity & Agency), a local agent with 
 - Building/access: `src/agent/shelter_blueprint.js`, `src/agent/shelter_building.js`.
 - Navigation/observations: `src/agent/navigation_*.js`, `src/agent/position_corrections.js`, `src/agent/live_inventory.js`, `src/agent/world_memory_sync.js`.
 - Persistence: `src/agent/local_memory.js`, `src/agent/memory_runtime.js`.
+- Food: `src/agent/food_goal.js`, `src/agent/food_policy.js`, `src/agent/food_reserve.js`, `src/adapters/minecraft/food.js`, `src/adapters/minecraft/food_runtime.js`. Food work reuses the current owner; preserve planting obligations, scoped reserve policy and verified pickup/cooking results. Commands and limits are in `docs/mia-food.md`.
 - Relevant docs are in `docs/mia*.md`; regressions are in `test/`; CI is `.github/workflows/managed-goals.yml`.
 
 The tree in `MIA_PROJECT.md` is the target architecture. Main Supervisor/world state/bridge and Survival Supervisor v1 exist; the other specialized supervisor modules, Personality Supervisor and Memory Manager abstraction remain planned. Survival uses `src/supervisors/survival.js` and `src/adapters/minecraft/survival.js` through the existing tick and ActionManager. Extend the existing `src/` tree incrementally; do not create a competing root `MIA/` runtime.
